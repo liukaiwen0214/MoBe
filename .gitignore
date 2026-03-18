@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# IDEA
+.idea/
+*.iml
+
+# Java
+target/
+logs/
+*.log
+
+# Node
+node_modules/
+dist/
+
+# Env
+.env
+.env.local
