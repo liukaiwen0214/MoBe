@@ -11,10 +11,15 @@ spring:
     password:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
-  Jackson:
-    time-zone: Asia/Shanghai
-    date-format: yyyy-MM-dd HH:mm:ss
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      table-underline: true
 
 logging:
   level:
-    root: info
+    com.mobe: debug

@@ -1,0 +1,21 @@
+CREATE TABLE `user_session` (
+                                `id` VARCHAR(32) NOT NULL COMMENT '会话ID',
+                                `user_id` VARCHAR(32) NOT NULL COMMENT '用户ID',
+                                `session_token` VARCHAR(128) NOT NULL COMMENT '会话令牌',
+                                `remember_me` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否记住我：0否，1是',
+                                `expires_at` DATETIME NOT NULL COMMENT '过期时间',
+                                `last_accessed_at` DATETIME DEFAULT NULL COMMENT '最后访问时间',
+                                `device_type` VARCHAR(50) DEFAULT NULL COMMENT '设备类型',
+                                `client_ip` VARCHAR(64) DEFAULT NULL COMMENT '登录IP',
+                                `user_agent` VARCHAR(500) DEFAULT NULL COMMENT '浏览器信息',
+                                `status` VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE/EXPIRED/LOGOUT',
+                                `is_deleted` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否删除：0未删除，1已删除',
+                                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                                PRIMARY KEY (`id`),
+                                UNIQUE KEY `uk_user_session_token` (`session_token`),
+                                KEY `idx_user_session_user_id` (`user_id`),
+                                KEY `idx_user_session_expires_at` (`expires_at`),
+                                KEY `idx_user_session_status` (`status`),
+                                KEY `idx_user_session_deleted` (`is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户会话表';
