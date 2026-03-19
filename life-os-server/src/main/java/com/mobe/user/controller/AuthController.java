@@ -1,11 +1,8 @@
 package com.mobe.user.controller;
 
 import com.mobe.common.result.ApiResponse;
-import com.mobe.user.dto.UserLoginRequest;
-import com.mobe.user.dto.UserLoginResponse;
-import com.mobe.user.dto.UserRegisterRequest;
+import com.mobe.user.dto.*;
 import com.mobe.user.service.UserService;
-import com.mobe.user.dto.CaptchaResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -54,5 +51,23 @@ public class AuthController {
         log.info("收到获取验证码请求");
         CaptchaResponse response = userService.generateCaptcha();
         return ApiResponse.success("获取验证码成功", response);
+    }
+    @PostMapping("/register/send-code")
+    public ApiResponse<SendCodeResponse> sendRegisterCode(@Valid @RequestBody SendCodeRequest request) {
+        log.info("收到发送注册验证码请求，email={}", request.getEmail());
+        SendCodeResponse response = userService.sendRegisterCode(request);
+        return ApiResponse.success("发送注册验证码成功", response);
+    }
+    @PostMapping("/password/forgot")
+    public ApiResponse<SendCodeResponse> forgotPassword(@Valid @RequestBody SendCodeRequest request) {
+        log.info("收到发送找回密码验证码请求，email={}", request.getEmail());
+        SendCodeResponse response = userService.sendPasswordResetCode(request);
+        return ApiResponse.success("发送找回密码验证码成功", response);
+    }
+    @PostMapping("/password/reset")
+    public ApiResponse<String> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
+        log.info("收到重置密码请求，email={}", request.getEmail());
+        String result = userService.resetPassword(request);
+        return ApiResponse.success(result);
     }
 }

@@ -14,6 +14,8 @@ import com.mobe.user.mapper.UserPreferencesMapper;
 import com.mobe.common.util.CaptchaUtil;
 import com.mobe.user.entity.AuthCodeEntity;
 import com.mobe.user.mapper.AuthCodeMapper;
+import com.mobe.common.util.CodeUtil;
+import lombok.extern.slf4j.Slf4j;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -21,7 +23,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-
+@Slf4j
 @Service
 public class UserService {
 
@@ -433,5 +435,139 @@ public class UserService {
         response.setExpiresAt(expiresAt);
 
         return response;
+    }
+
+    public SendCodeResponse sendRegisterCode(SendCodeRequest request) {
+        Long emailCount = userMapper.selectCount(
+                new LambdaQueryWrapper<UserEntity>()
+                        .eq(UserEntity::getEmail, request.getEmail())
+                        .eq(UserEntity::getIsDeleted, 0)
+        );
+
+        if (emailCount != null && emailCount > 0) {
+            throw new BizException("邮箱已被注册");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expiresAt = now.plusMinutes(10);
+        String code = CodeUtil.generateNumericCode(6);
+
+        AuthCodeEntity authCode = new AuthCodeEntity();
+        authCode.setTarget(request.getEmail());
+        authCode.setCode(code);
+        authCode.setType("REGISTER");
+        authCode.setExpiresAt(expiresAt);
+        authCode.setUsed(0);
+        authCode.setStatus("ACTIVE");
+        authCode.setIsDeleted(0);
+        authCode.setCreatedAt(now);
+        authCode.setUpdatedAt(now);
+
+        authCodeMapper.insert(authCode);
+
+        SendCodeResponse response = new SendCodeResponse();
+        response.setCodeId(authCode.getId());
+        response.setCode(code);
+        response.setExpiresAt(expiresAt);
+
+        return response;
+    }
+
+    public SendCodeResponse sendPasswordResetCode(SendCodeRequest request) {
+        UserEntity user = userMapper.selectOne(
+                new LambdaQueryWrapper<UserEntity>()
+                        .eq(UserEntity::getEmail, request.getEmail())
+                        .eq(UserEntity::getIsDeleted, 0)
+                        .last("LIMIT 1")
+        );
+
+        if (user == null) {
+            throw new BizException("邮箱未注册");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expiresAt = now.plusMinutes(10);
+        String code = CodeUtil.generateNumericCode(6);
+
+        AuthCodeEntity authCode = new AuthCodeEntity();
+        authCode.setTarget(request.getEmail());
+        authCode.setCode(code);
+        authCode.setType("PASSWORD_RESET");
+        authCode.setExpiresAt(expiresAt);
+        authCode.setUsed(0);
+        authCode.setStatus("ACTIVE");
+        authCode.setIsDeleted(0);
+        authCode.setCreatedAt(now);
+        authCode.setUpdatedAt(now);
+
+        authCodeMapper.insert(authCode);
+
+        SendCodeResponse response = new SendCodeResponse();
+        response.setCodeId(authCode.getId());
+        response.setCode(code);
+        response.setExpiresAt(expiresAt);
+
+        return response;
+    }
+
+    public String resetPassword(PasswordResetRequest request) {
+        UserEntity user = userMapper.selectOne(
+                new LambdaQueryWrapper<UserEntity>()
+                        .eq(UserEntity::getEmail, request.getEmail())
+                        .eq(UserEntity::getIsDeleted, 0)
+                        .last("LIMIT 1")
+        );
+
+        if (user == null) {
+            throw new BizException("邮箱未注册");
+        }
+
+        AuthCodeEntity authCode = authCodeMapper.selectOne(
+                new LambdaQueryWrapper<AuthCodeEntity>()
+                        .eq(AuthCodeEntity::getTarget, request.getEmail())
+                        .eq(AuthCodeEntity::getType, "PASSWORD_RESET")
+                        .eq(AuthCodeEntity::getIsDeleted, 0)
+                        .orderByDesc(AuthCodeEntity::getCreatedAt)
+                        .last("LIMIT 1")
+        );
+
+        if (authCode == null) {
+            throw new BizException("验证码不存在");
+        }
+
+        if (authCode.getUsed() != null && authCode.getUsed() == 1) {
+            throw new BizException("验证码已使用");
+        }
+
+        if (!"ACTIVE".equals(authCode.getStatus())) {
+            throw new BizException("验证码状态不可用");
+        }
+
+        if (authCode.getExpiresAt() == null || authCode.getExpiresAt().isBefore(LocalDateTime.now())) {
+            authCode.setStatus("EXPIRED");
+            authCode.setUpdatedAt(LocalDateTime.now());
+            authCodeMapper.updateById(authCode);
+            throw new BizException("验证码已过期");
+        }
+
+        if (!request.getCode().equals(authCode.getCode())) {
+            throw new BizException("验证码错误");
+        }
+
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
+            throw new BizException("新密码不能与旧密码相同");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
+
+        authCode.setUsed(1);
+        authCode.setUsedAt(LocalDateTime.now());
+        authCode.setStatus("USED");
+        authCode.setUpdatedAt(LocalDateTime.now());
+        authCodeMapper.updateById(authCode);
+
+        return "重置密码成功";
     }
 }
