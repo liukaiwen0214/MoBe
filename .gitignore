@@ -17,3 +17,12 @@ dist/
 # Env
 .env
 .env.local
+# frontend
+life-os-web/node_modules/
+life-os-web/.nuxt/
+life-os-web/.output/
+life-os-web/dist/
+
+# build output
+out/
+target/
