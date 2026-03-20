@@ -1,18 +1,41 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { loginApi, getCaptchaApi } from '~/api/auth'
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
+import { getCaptchaApi, loginApi, registerApi, sendRegisterCodeApi } from '~/api/auth'
 import { useUserStore } from '~/stores/user'
+import { useSystemToast } from '~/composables/useSystemToast'
 
 definePageMeta({
   layout: 'auth',
   middleware: 'guest'
 })
 
-const form = reactive({
+const userStore = useUserStore()
+const systemToast = useSystemToast()
+
+const showRegister = ref(false)
+const showLoginPassword = ref(false)
+const showRegisterPassword = ref(false)
+const showRegisterConfirmPassword = ref(false)
+
+const loginLoading = ref(false)
+const registerLoading = ref(false)
+const sendingCode = ref(false)
+const pageReady = ref(false)
+
+const loginForm = reactive({
   account: '',
   password: '',
   captchaCode: '',
   rememberMe: false
+})
+
+const registerForm = reactive({
+  username: '',
+  email: '',
+  code: '',
+  password: '',
+  confirmPassword: '',
+  agree: false
 })
 
 const captcha = reactive({
@@ -21,46 +44,114 @@ const captcha = reactive({
   expiresAt: ''
 })
 
-const userStore = useUserStore()
-const loading = ref(false)
+const registerCodeState = reactive({
+  countdown: 0
+})
 
-const errors = reactive({
+const loginErrors = reactive({
   account: '',
   password: '',
   captchaCode: ''
 })
 
-const touched = reactive({
+const registerErrors = reactive({
+  username: '',
+  email: '',
+  code: '',
+  password: '',
+  confirmPassword: '',
+  agree: ''
+})
+
+const loginTouched = reactive({
   account: false
 })
-const showPassword = ref(false)
 
-async function handleLogin() {
-  console.log('login form', form)
-  if (!validateForm()) {
-    return
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+function unwrapResponse(res: any) {
+  if (res?.data && typeof res.data === 'object' && ('success' in res.data || 'data' in res.data || 'message' in res.data)) {
+    return res.data
+  }
+  return res
+}
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+async function fetchCaptcha() {
+  try {
+    const res = await getCaptchaApi()
+    const payload = unwrapResponse(res)
+
+    if (!payload?.success || !payload?.data?.captchaId) {
+      throw new Error(payload?.message || '获取验证码失败')
+    }
+
+    captcha.captchaId = payload.data.captchaId
+    captcha.captchaCode = payload.data.captchaCode
+    captcha.expiresAt = payload.data.expiresAt
+  } catch (error: any) {
+    systemToast.error('获取验证码失败', error?.message || '请稍后重试', 'captcha-error')
+  }
+}
+
+function validateLoginAccountOnBlur() {
+  loginTouched.account = true
+  loginErrors.account = loginForm.account.trim() ? '' : '请输入有效的用户名或邮箱'
+}
+
+function validateLoginForm() {
+  let valid = true
+
+  if (!loginForm.account.trim()) {
+    loginErrors.account = '请输入有效的用户名或邮箱'
+    valid = false
+  } else {
+    loginErrors.account = ''
   }
 
-  loading.value = true
+  if (!loginForm.password.trim()) {
+    loginErrors.password = '请输入密码'
+    valid = false
+  } else {
+    loginErrors.password = ''
+  }
+
+  if (!loginForm.captchaCode.trim()) {
+    loginErrors.captchaCode = '请输入验证码'
+    valid = false
+  } else {
+    loginErrors.captchaCode = ''
+  }
+
+  return valid
+}
+
+async function handleLogin() {
+  if (!validateLoginForm()) return
+
+  loginLoading.value = true
 
   try {
     const res = await loginApi({
-      account: form.account.trim(),
-      password: form.password,
-      rememberMe: form.rememberMe ? 1 : 0
+      account: loginForm.account.trim(),
+      password: loginForm.password,
+      rememberMe: loginForm.rememberMe ? 1 : 0
     })
+    const payload = unwrapResponse(res)
 
-    if (!res?.data || !res?.data?.sessionToken) {
-      throw new Error(res?.data?.message || '登录失败')
+    if (!payload?.success || !payload?.data?.sessionToken) {
+      throw new Error(payload?.message || '登录失败')
     }
 
-    userStore.setToken(res.data.sessionToken)
+    userStore.setToken(payload.data.sessionToken)
     await userStore.fetchMe()
 
+    systemToast.success('登录成功', '欢迎回来', 'login-success')
     await navigateTo('/')
   } catch (error: any) {
-    console.error('登录失败', error)
-
     userStore.logout()
     await fetchCaptcha()
 
@@ -69,157 +160,613 @@ async function handleLogin() {
       error?.message ||
       '登录失败，请稍后重试'
 
-    alert(message)
+    systemToast.error('登录失败', message, 'login-error')
   } finally {
-    loading.value = false
+    loginLoading.value = false
   }
-}
-async function fetchCaptcha() {
-  try {
-    const res = await getCaptchaApi()
-    if (res?.data) {
-      captcha.captchaId = res.data.captchaId
-      captcha.captchaCode = res.data.captchaCode
-      captcha.expiresAt = res.data.expiresAt
-    }
-  } catch (error) {
-    console.error('获取验证码失败', error)
-  }
-}
-function validateAccountOnBlur() {
-  touched.account = true
-  errors.account = form.account.trim() ? '' : '请输入有效的用户名或邮箱'
 }
 
-function validateForm() {
+function validateRegisterForm() {
   let valid = true
 
-  if (!form.account.trim()) {
-    errors.account = '请输入有效的用户名或邮箱'
+  if (!registerForm.username.trim()) {
+    registerErrors.username = '请输入用户名'
     valid = false
   } else {
-    errors.account = ''
+    registerErrors.username = ''
   }
 
-  if (!form.password.trim()) {
-    errors.password = '请输入密码'
+  if (!registerForm.email.trim()) {
+    registerErrors.email = '请输入邮箱'
+    valid = false
+  } else if (!isValidEmail(registerForm.email.trim())) {
+    registerErrors.email = '请输入正确的邮箱格式'
     valid = false
   } else {
-    errors.password = ''
+    registerErrors.email = ''
   }
 
-  if (!form.captchaCode.trim()) {
-    errors.captchaCode = '请输入验证码'
+  if (!registerForm.code.trim()) {
+    registerErrors.code = '请输入验证码'
     valid = false
   } else {
-    errors.captchaCode = ''
+    registerErrors.code = ''
+  }
+
+  if (!registerForm.password.trim()) {
+    registerErrors.password = '请输入密码'
+    valid = false
+  } else if (registerForm.password.length < 6) {
+    registerErrors.password = '密码长度至少 6 位'
+    valid = false
+  } else {
+    registerErrors.password = ''
+  }
+
+  if (!registerForm.confirmPassword.trim()) {
+    registerErrors.confirmPassword = '请再次输入密码'
+    valid = false
+  } else if (registerForm.confirmPassword !== registerForm.password) {
+    registerErrors.confirmPassword = '两次输入的密码不一致'
+    valid = false
+  } else {
+    registerErrors.confirmPassword = ''
+  }
+
+  if (!registerForm.agree) {
+    registerErrors.agree = '请先勾选同意'
+    valid = false
+  } else {
+    registerErrors.agree = ''
   }
 
   return valid
 }
+
+function startCountdown() {
+  registerCodeState.countdown = 60
+
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+  }
+
+  countdownTimer = setInterval(() => {
+    if (registerCodeState.countdown <= 1) {
+      registerCodeState.countdown = 0
+      if (countdownTimer) {
+        clearInterval(countdownTimer)
+        countdownTimer = null
+      }
+      return
+    }
+
+    registerCodeState.countdown -= 1
+  }, 1000)
+}
+
+async function handleSendRegisterCode() {
+  if (sendingCode.value || registerCodeState.countdown > 0) return
+
+  if (!registerForm.email.trim()) {
+    registerErrors.email = '请输入邮箱'
+    return
+  }
+
+  if (!isValidEmail(registerForm.email.trim())) {
+    registerErrors.email = '请输入正确的邮箱格式'
+    return
+  }
+
+  sendingCode.value = true
+
+  try {
+    const res = await sendRegisterCodeApi({
+      email: registerForm.email.trim()
+    })
+    const payload = unwrapResponse(res)
+
+    if (!payload?.success) {
+      throw new Error(payload?.message || '发送验证码失败')
+    }
+
+    startCountdown()
+    systemToast.success('发送成功', '验证码已发送，请注意查收', 'register-code-success')
+  } catch (error: any) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      '发送验证码失败'
+
+    systemToast.error('发送失败', message, 'register-code-error')
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+async function handleRegister() {
+  if (!validateRegisterForm()) return
+
+  registerLoading.value = true
+
+  try {
+    const res = await registerApi({
+      username: registerForm.username.trim(),
+      email: registerForm.email.trim(),
+      code: registerForm.code.trim(),
+      password: registerForm.password
+    })
+    const payload = unwrapResponse(res)
+
+    if (!payload?.success) {
+      throw new Error(payload?.message || '注册失败')
+    }
+
+    systemToast.success('注册成功', '现在可以登录了', 'register-success')
+
+    loginForm.account = registerForm.email.trim()
+
+    registerForm.username = ''
+    registerForm.email = ''
+    registerForm.code = ''
+    registerForm.password = ''
+    registerForm.confirmPassword = ''
+    registerForm.agree = false
+
+    setTimeout(() => {
+      showRegister.value = false
+    }, 220)
+  } catch (error: any) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      '注册失败，请稍后重试'
+
+    systemToast.error('注册失败', message, 'register-error')
+  } finally {
+    registerLoading.value = false
+  }
+}
+
+const passwordStrength = computed(() => {
+  const pwd = registerForm.password
+
+  if (!pwd) {
+    return {
+      score: 0,
+      text: '请输入密码',
+      color: '#b0a8b7'
+    }
+  }
+
+  let score = 0
+
+  if (pwd.length >= 6) score++
+  if (/[A-Z]/.test(pwd) || /[a-z]/.test(pwd)) score++
+  if (/\d/.test(pwd)) score++
+  if (/[^A-Za-z0-9]/.test(pwd)) score++
+
+  if (pwd.length < 6 || score <= 1) {
+    return {
+      score: 1,
+      text: '弱',
+      color: '#d08b95'
+    }
+  }
+
+  if (score === 2 || score === 3) {
+    return {
+      score: 2,
+      text: '中',
+      color: '#d7b57c'
+    }
+  }
+
+  return {
+    score: 3,
+    text: '强',
+    color: '#86a98f'
+  }
+})
+
 onMounted(() => {
   fetchCaptcha()
+
+  requestAnimationFrame(() => {
+    pageReady.value = true
+  })
+})
+
+onBeforeUnmount(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
 })
 </script>
 
 <template>
   <div class="login-page">
-    <div class="auth-card">
+    <div class="auth-card" :class="{ 'is-register': showRegister, 'is-ready': pageReady }">
       <div class="auth-left">
         <div class="auth-badge">
           MoBe
         </div>
-        <h1>欢迎回来</h1>
-        <p>让生活、任务、日程和记录都安静地归位。</p>
+
+        <Transition name="fade-slide" mode="out-in">
+          <div :key="showRegister ? 'register-left' : 'login-left'">
+            <h1>{{ showRegister ? '欢迎加入' : '欢迎回来' }}</h1>
+            <p>
+              {{
+                showRegister
+                  ? '从任务、日程到个人节奏，把生活慢慢整理清楚。'
+                  : '让生活、任务、日程和记录都安静地归位。'
+              }}
+            </p>
+          </div>
+        </Transition>
       </div>
 
       <div class="auth-right">
-        <div class="login-panel">
-          <div class="login-head">
-            <div class="login-kicker">
-              欢迎回来
+        <Transition name="panel-switch" mode="out-in">
+          <div v-if="!showRegister" key="login" class="login-panel">
+            <div class="login-head">
+              <div class="login-kicker">欢迎回来</div>
+              <h2>登录 MoBe</h2>
+              <p>继续管理你的任务、日程与个人节奏</p>
             </div>
-            <h2>登录 MoBe</h2>
-            <p>继续管理你的任务、日程与个人节奏</p>
-          </div>
 
-          <UForm :state="form" class="login-form" @submit="handleLogin">
-            <UFormField name="account" size="xl" class="form-item"
-              :error="touched.account && errors.account ? errors.account : undefined" :ui="{
-                error: 'text-[12px] mt-1'
-              }">
-              <UInput v-model="form.account" placeholder="" size="xl" :ui="{ base: 'peer' }" variant="outline"
-                class="w-full login-input" @blur="validateAccountOnBlur"
-                @input="touched.account && (errors.account = form.account.trim() ? '' : '请输入有效的用户名或邮箱')">
-                <label
-                  class="pointer-events-none absolute left-0 -top-2.5 text-highlighted text-xs font-medium px-1.5 transition-all peer-focus:-top-2.5 peer-focus:text-highlighted peer-focus:text-xs peer-focus:font-medium peer-placeholder-shown:text-sm peer-placeholder-shown:text-dimmed peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:font-normal">
-                  <span
-                    class="inline-flex px-1 rounded-full bg-white/70 backdrop-blur-sm text-[#6f6974]">请输入用户名或邮箱</span>
-                </label>
-              </UInput>
-            </UFormField>
+            <UForm :state="loginForm" class="login-form" @submit="handleLogin">
+              <UFormField
+                name="account"
+                size="xl"
+                class="form-item"
+                :error="loginTouched.account && loginErrors.account ? loginErrors.account : undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <UInput
+                  v-model="loginForm.account"
+                  placeholder=" "
+                  size="xl"
+                  variant="outline"
+                  class="w-full"
+                  :ui="{ base: 'peer' }"
+                  @blur="validateLoginAccountOnBlur"
+                  @input="loginTouched.account && (loginErrors.account = loginForm.account.trim() ? '' : '请输入有效的用户名或邮箱')"
+                >
+                  <label class="floating-label">
+                    <span class="floating-label-bg">账号</span>
+                  </label>
+                </UInput>
+              </UFormField>
 
-            <UFormField name="password" required size="xl" class="form-item" :error="errors.password || undefined"
-  :ui="{ error: 'text-[12px] mt-1' }">
-              <UInput v-model="form.password" placeholder="" size="xl" :ui="{ base: 'peer' }"
-                :type="showPassword ? 'text' : 'password'" variant="outline" class="w-full login-input" @input="errors.password = ''">
-                <label
-                  class="pointer-events-none absolute left-0 -top-2.5 text-highlighted text-xs font-medium px-1.5 transition-all peer-focus:-top-2.5 peer-focus:text-highlighted peer-focus:text-xs peer-focus:font-medium peer-placeholder-shown:text-sm peer-placeholder-shown:text-dimmed peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:font-normal">
-                  <span class="inline-flex px-1 rounded-full bg-white/70 backdrop-blur-sm text-[#6f6974]">请输入密码</span>
-                </label>
-                <template #trailing>
-                  <UButton color="neutral" variant="link" size="sm"
-                    :icon="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'" aria-label="切换密码显示"
-                    @click="showPassword = !showPassword" />
-                </template>
-              </UInput>
-            </UFormField>
-            <UFormField name="captchaCode" size="xl" class="form-item" :error="errors.captchaCode || undefined"
-  :ui="{ error: 'text-[12px] mt-1' }">
-              <div class="captcha-row">
-                <div class="captcha-input-wrap">
-                  <UInput v-model="form.captchaCode" placeholder="" size="xl" :ui="{ base: 'peer' }" variant="outline"
-                    class="w-full login-input" @input="errors.captchaCode = ''">
-                    <label
-                      class="pointer-events-none absolute left-0 -top-2.5 text-highlighted text-xs font-medium px-1.5 transition-all peer-focus:-top-2.5 peer-focus:text-highlighted peer-focus:text-xs peer-focus:font-medium peer-placeholder-shown:text-sm peer-placeholder-shown:text-dimmed peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:font-normal">
-                      <span class="inline-flex px-1 rounded-full bg-white/70 backdrop-blur-sm text-[#6f6974]">
-                        请输入验证码
-                      </span>
-                    </label>
-                  </UInput>
+              <UFormField
+                name="password"
+                size="xl"
+                class="form-item"
+                :error="loginErrors.password || undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <UInput
+                  v-model="loginForm.password"
+                  :type="showLoginPassword ? 'text' : 'password'"
+                  placeholder=" "
+                  size="xl"
+                  variant="outline"
+                  class="w-full"
+                  :ui="{ base: 'peer', trailing: 'pe-1' }"
+                  @input="loginErrors.password = ''"
+                >
+                  <label class="floating-label">
+                    <span class="floating-label-bg">密码</span>
+                  </label>
+
+                  <template #trailing>
+                    <UButton
+                      color="neutral"
+                      variant="link"
+                      size="sm"
+                      :icon="showLoginPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                      aria-label="切换密码显示"
+                      @click="showLoginPassword = !showLoginPassword"
+                    />
+                  </template>
+                </UInput>
+              </UFormField>
+
+              <UFormField
+                name="captchaCode"
+                size="xl"
+                class="form-item"
+                :error="loginErrors.captchaCode || undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <div class="captcha-row">
+                  <div class="captcha-input-wrap">
+                    <UInput
+                      v-model="loginForm.captchaCode"
+                      placeholder=" "
+                      size="xl"
+                      variant="outline"
+                      class="w-full"
+                      :ui="{ base: 'peer' }"
+                      @input="loginErrors.captchaCode = ''"
+                    >
+                      <label class="floating-label">
+                        <span class="floating-label-bg">验证码</span>
+                      </label>
+                    </UInput>
+                  </div>
+
+                  <div class="captcha-box-wrap">
+                    <CommonCaptchaCanvas
+                      v-if="captcha.captchaCode"
+                      :code="captcha.captchaCode"
+                      :width="120"
+                      :height="40"
+                      @refresh="fetchCaptcha"
+                    />
+                    <button
+                      v-else
+                      type="button"
+                      class="captcha-box loading"
+                      @click="fetchCaptcha"
+                    >
+                      获取中...
+                    </button>
+                  </div>
                 </div>
 
-                <div class="captcha-box-wrap">
-                  <CommonCaptchaCanvas v-if="captcha.captchaCode" :code="captcha.captchaCode" :width="120" :height="40"
-                    @refresh="fetchCaptcha" />
-                  <button v-else type="button" class="captcha-box loading" @click="fetchCaptcha">
-                    获取中...
-                  </button>
+                <div class="captcha-tip" @click="fetchCaptcha">
+                  看不清？换一个
                 </div>
+              </UFormField>
+
+              <div class="login-actions">
+                <UCheckbox v-model="loginForm.rememberMe" label="记住我" />
+                <button type="button" class="link-btn pseudo-link">
+                  忘记密码？
+                </button>
               </div>
-            </UFormField>
-            <div class="login-actions">
-              <UCheckbox v-model="form.rememberMe" label="记住我" />
-              <NuxtLink to="/forgot-password" class="link-btn">
-                忘记密码？
-              </NuxtLink>
+
+              <div class="login-buttons">
+                <UButton
+                  type="submit"
+                  size="xl"
+                  block
+                  class="login-submit"
+                  :loading="loginLoading"
+                >
+                  登录
+                </UButton>
+
+                <UButton
+                  variant="soft"
+                  color="neutral"
+                  size="xl"
+                  block
+                  class="login-register"
+                  @click="showRegister = true"
+                >
+                  创建账号
+                </UButton>
+              </div>
+            </UForm>
+
+            <div class="login-footer">
+              登录即表示你同意基础使用规则
             </div>
-
-            <div class="login-buttons">
-              <UButton type="submit" size="xl" block class="login-submit" :loading="loading">
-                登录
-              </UButton>
-
-              <UButton to="/register" variant="soft" color="neutral" size="xl" block class="login-register">
-                注册账号
-              </UButton>
-            </div>
-          </UForm>
-
-          <div class="login-footer">
-            登录即表示你同意基础使用规则
           </div>
-        </div>
+
+          <div v-else key="register" class="login-panel">
+            <div class="login-head">
+              <div class="login-kicker">欢迎加入</div>
+              <h2>创建你的 MoBe</h2>
+              <p>从任务、日程到个人节奏，把生活慢慢整理清楚。</p>
+            </div>
+
+            <UForm :state="registerForm" class="login-form" @submit="handleRegister">
+              <UFormField
+                name="username"
+                size="xl"
+                class="form-item"
+                :error="registerErrors.username || undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <UInput
+                  v-model="registerForm.username"
+                  placeholder=" "
+                  size="xl"
+                  variant="outline"
+                  class="w-full"
+                  :ui="{ base: 'peer' }"
+                  @input="registerErrors.username = ''"
+                >
+                  <label class="floating-label">
+                    <span class="floating-label-bg">用户名</span>
+                  </label>
+                </UInput>
+              </UFormField>
+
+              <UFormField
+                name="email"
+                size="xl"
+                class="form-item"
+                :error="registerErrors.email || undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <UInput
+                  v-model="registerForm.email"
+                  placeholder=" "
+                  size="xl"
+                  variant="outline"
+                  class="w-full"
+                  :ui="{ base: 'peer' }"
+                  @input="registerErrors.email = ''"
+                >
+                  <label class="floating-label">
+                    <span class="floating-label-bg">邮箱</span>
+                  </label>
+                </UInput>
+              </UFormField>
+
+              <UFormField
+                name="code"
+                size="xl"
+                class="form-item"
+                :error="registerErrors.code || undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <div class="captcha-row">
+                  <div class="captcha-input-wrap">
+                    <UInput
+                      v-model="registerForm.code"
+                      placeholder=" "
+                      size="xl"
+                      variant="outline"
+                      class="w-full"
+                      :ui="{ base: 'peer' }"
+                      @input="registerErrors.code = ''"
+                    >
+                      <label class="floating-label">
+                        <span class="floating-label-bg">验证码</span>
+                      </label>
+                    </UInput>
+                  </div>
+
+                  <UButton
+                    type="button"
+                    color="neutral"
+                    variant="ghost"
+                    class="send-code-btn"
+                    :loading="sendingCode"
+                    :disabled="sendingCode || registerCodeState.countdown > 0"
+                    @click="handleSendRegisterCode"
+                  >
+                    {{ registerCodeState.countdown > 0 ? `${registerCodeState.countdown}s` : '发送验证码' }}
+                  </UButton>
+                </div>
+              </UFormField>
+
+              <UFormField
+                name="password"
+                size="xl"
+                class="form-item"
+                :error="registerErrors.password || undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <UInput
+                  v-model="registerForm.password"
+                  :type="showRegisterPassword ? 'text' : 'password'"
+                  placeholder=" "
+                  size="xl"
+                  variant="outline"
+                  class="w-full"
+                  :ui="{ base: 'peer', trailing: 'pe-1' }"
+                  @input="registerErrors.password = ''"
+                >
+                  <label class="floating-label">
+                    <span class="floating-label-bg">密码</span>
+                  </label>
+
+                  <template #trailing>
+                    <UButton
+                      color="neutral"
+                      variant="link"
+                      size="sm"
+                      :icon="showRegisterPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                      aria-label="切换密码显示"
+                      @click="showRegisterPassword = !showRegisterPassword"
+                    />
+                  </template>
+                </UInput>
+
+                <div class="password-strength">
+                  <div class="strength-bar">
+                    <div
+                      class="strength-fill"
+                      :style="{
+                        width: `${passwordStrength.score * 33.33}%`,
+                        background: passwordStrength.color
+                      }"
+                    />
+                  </div>
+                  <div class="strength-text" :style="{ color: passwordStrength.color }">
+                    密码强度：{{ passwordStrength.text }}
+                  </div>
+                </div>
+              </UFormField>
+
+              <UFormField
+                name="confirmPassword"
+                size="xl"
+                class="form-item"
+                :error="registerErrors.confirmPassword || undefined"
+                :ui="{ error: 'text-[12px] mt-1 text-[#d08b95]' }"
+              >
+                <UInput
+                  v-model="registerForm.confirmPassword"
+                  :type="showRegisterConfirmPassword ? 'text' : 'password'"
+                  placeholder=" "
+                  size="xl"
+                  variant="outline"
+                  class="w-full"
+                  :ui="{ base: 'peer', trailing: 'pe-1' }"
+                  @input="registerErrors.confirmPassword = ''"
+                >
+                  <label class="floating-label">
+                    <span class="floating-label-bg">确认密码</span>
+                  </label>
+
+                  <template #trailing>
+                    <UButton
+                      color="neutral"
+                      variant="link"
+                      size="sm"
+                      :icon="showRegisterConfirmPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                      aria-label="切换密码显示"
+                      @click="showRegisterConfirmPassword = !showRegisterConfirmPassword"
+                    />
+                  </template>
+                </UInput>
+              </UFormField>
+
+              <div class="register-agree">
+                <UCheckbox v-model="registerForm.agree" label="我已阅读并同意基础使用规则" />
+              </div>
+
+              <div v-if="registerErrors.agree" class="agree-error">
+                {{ registerErrors.agree }}
+              </div>
+
+              <div class="login-buttons">
+                <UButton
+                  type="submit"
+                  size="xl"
+                  block
+                  class="login-submit"
+                  :loading="registerLoading"
+                >
+                  注册
+                </UButton>
+
+                <UButton
+                  variant="soft"
+                  color="neutral"
+                  size="xl"
+                  block
+                  class="login-register"
+                  @click="showRegister = false"
+                >
+                  返回登录
+                </UButton>
+              </div>
+            </UForm>
+
+            <div class="login-footer">
+              注册成功后即可立即登录
+            </div>
+          </div>
+        </Transition>
       </div>
     </div>
   </div>
@@ -234,23 +781,44 @@ onMounted(() => {
   justify-content: center;
   padding: 40px;
   box-sizing: border-box;
-  background: linear-gradient(to top, #fff1eb 0%, #ace0f9 100%);
+  background-color: #f4eeec;
+  background-image:
+    radial-gradient(73% 147% at 22% 18%, #EADFDF 59%, #ECE2DF 100%),
+    radial-gradient(91% 146% at 82% 16%, rgba(255, 255, 255, 0.50) 47%, rgba(0, 0, 0, 0.50) 100%);
+  background-blend-mode: screen;
 }
 
 .auth-card {
-  width: 1100px;
+  width: 1120px;
   max-width: calc(100vw - 80px);
-  min-height: 680px;
+  min-height: 700px;
   border-radius: 36px;
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.32);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  box-shadow: 0 20px 50px rgba(80, 90, 110, 0.08);
+  border: 1px solid rgba(145, 132, 126, 0.18);
+  box-shadow:
+    0 24px 60px rgba(80, 90, 110, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
   display: grid;
   grid-template-columns: 1.08fr 0.92fr;
   overflow: hidden;
   box-sizing: border-box;
+  opacity: 0;
+  transform: translateY(18px) scale(0.988);
+  transition:
+    opacity 0.55s ease,
+    transform 0.55s ease,
+    box-shadow 0.35s ease;
+}
+
+.auth-card.is-ready {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.auth-card.is-register {
+  transform: translateY(-2px);
 }
 
 .auth-left {
@@ -295,13 +863,13 @@ onMounted(() => {
 
 .login-panel {
   width: 100%;
-  max-width: 420px;
-  padding: 34px 32px 28px;
+  max-width: 460px;
+  padding: 40px 36px 32px;
   border-radius: 30px;
-  background: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(145, 132, 126, 0.12);
   box-shadow: 0 16px 40px rgba(88, 96, 110, 0.06);
   box-sizing: border-box;
 }
@@ -339,6 +907,43 @@ onMounted(() => {
 
 .form-item {
   margin-bottom: 0;
+  position: relative;
+}
+
+.floating-label {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  top: -10px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.peer-placeholder-shown ~ .floating-label {
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.peer-focus ~ .floating-label,
+.peer:not(:placeholder-shown) ~ .floating-label {
+  top: -10px;
+  transform: none;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.floating-label-bg {
+  display: inline-flex;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #6f6974;
 }
 
 .login-actions {
@@ -354,7 +959,14 @@ onMounted(() => {
   text-decoration: none;
 }
 
-.link-btn:hover {
+.pseudo-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pseudo-link:hover {
   opacity: 0.85;
 }
 
@@ -366,9 +978,14 @@ onMounted(() => {
 }
 
 .login-submit {
-  color: #4f5663;
   border: none;
-  box-shadow: 0 10px 24px rgba(144, 160, 190, 0.18);
+  color: #525a68;
+  box-shadow: 0 10px 24px rgba(144, 160, 190, 0.14);
+}
+
+.login-register {
+  color: #6f6974;
+  border: 1px solid rgba(255, 255, 255, 0.36);
 }
 
 .login-footer {
@@ -386,48 +1003,31 @@ onMounted(() => {
 
 .captcha-input-wrap {
   flex: 1;
+  position: relative;
 }
 
-.captcha-box {
-  min-width: 120px;
-  height: 40px;
-  border: 1px solid rgba(185, 185, 185, 0.46);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.28);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: #5f5b66;
-  font-size: 14px;
-  /* 原来 16px，改小 */
-  font-weight: 500;
-  /* 原来 600，改轻 */
-  letter-spacing: 1px;
-  /* 原来 2px，改小 */
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.captcha-box.loading {
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: 0.5px;
-  color: #8b8690;
-}
-
-.captcha-box.ready {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 2px;
-  color: #5f5b66;
-}
-
-.captcha-box:hover {
-  background: rgba(255, 255, 255, 0.36);
-}
 .captcha-box-wrap {
   width: 120px;
   min-width: 120px;
   height: 40px;
+}
+
+.captcha-box {
+  width: 120px;
+  height: 40px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #7e7884;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: all 0.2s ease;
+}
+
+.captcha-box:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 .captcha-tip {
@@ -436,13 +1036,77 @@ onMounted(() => {
   font-size: 12px;
   color: #8a8590;
   cursor: pointer;
-  user-select: none;
 }
 
-.captcha-tip:hover {
-  opacity: 0.85;
-}
-:deep(.form-item label) {
+.send-code-btn {
+  min-width: 120px;
+  height: 40px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.32);
   color: #6f6974;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.send-code-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.send-code-btn:disabled {
+  opacity: 0.72;
+}
+
+.password-strength {
+  margin-top: 10px;
+}
+
+.strength-bar {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.strength-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: all 0.2s ease;
+}
+
+.strength-text {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.register-agree {
+  margin-top: -4px;
+}
+
+.agree-error {
+  margin-top: -10px;
+  font-size: 12px;
+  color: #d08b95;
+}
+
+.fade-slide-enter-active,
+.fade-slide-leave-active,
+.panel-switch-enter-active,
+.panel-switch-leave-active {
+  transition: all 0.28s ease;
+}
+
+.fade-slide-enter-from,
+.panel-switch-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.fade-slide-leave-to,
+.panel-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 </style>

@@ -1,6 +1,24 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
+import { NuxtLink } from '#components'
+
+/**
+ * 应用侧边栏组件
+ * <p>
+ * 功能：显示应用的侧边导航菜单，包括核心功能和用户相关功能
+ * 说明：使用 Vue 3 的组合式 API 开发
+ */
+
+/**
+ * 路由对象
+ */
 const route = useRoute()
 
+/**
+ * 菜单组配置
+ * <p>
+ * 说明：包含多个菜单组，每个菜单组包含多个菜单项
+ */
 const menuGroups = [
   {
     title: '核心',
@@ -23,6 +41,13 @@ const menuGroups = [
   }
 ]
 
+/**
+ * 检查菜单项是否激活
+ * <p>
+ * 功能：根据当前路由路径检查菜单项是否激活
+ * @param path 菜单项的路径
+ * @returns boolean 是否激活
+ */
 function isActive(path: string) {
   if (path === '/') {
     return route.path === '/'
@@ -32,7 +57,9 @@ function isActive(path: string) {
 </script>
 
 <template>
+  <!-- 侧边栏卡片容器 -->
   <div class="sidebar-card">
+    <!-- 品牌标识 -->
     <div class="brand">
       <div class="brand-badge">
         M
@@ -47,7 +74,9 @@ function isActive(path: string) {
       </div>
     </div>
 
+    <!-- 菜单容器 -->
     <div class="menu-wrap">
+      <!-- 菜单组 -->
       <div
         v-for="group in menuGroups"
         :key="group.title"
@@ -57,6 +86,7 @@ function isActive(path: string) {
           {{ group.title }}
         </div>
 
+        <!-- 菜单项 -->
         <NuxtLink
           v-for="item in group.items"
           :key="item.to"
@@ -76,10 +106,12 @@ function isActive(path: string) {
 </template>
 
 <style scoped>
+/**
+ * 侧边栏卡片样式
+ */
 .sidebar-card {
   height: calc(100vh - 32px);
   border-radius: 28px;
-  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(120, 90, 60, 0.08);
   box-shadow: 0 12px 36px rgba(95, 71, 47, 0.07);
   padding: 18px 14px;
@@ -88,6 +120,9 @@ function isActive(path: string) {
   flex-direction: column;
 }
 
+/**
+ * 品牌标识样式
+ */
 .brand {
   display: flex;
   align-items: center;
@@ -95,6 +130,9 @@ function isActive(path: string) {
   padding: 8px 10px 18px;
 }
 
+/**
+ * 品牌徽章样式
+ */
 .brand-badge {
   width: 42px;
   height: 42px;
@@ -107,34 +145,52 @@ function isActive(path: string) {
   font-weight: 700;
 }
 
+/**
+ * 品牌标题样式
+ */
 .brand-title {
   font-size: 18px;
   font-weight: 700;
   color: #5f4730;
 }
 
+/**
+ * 品牌副标题样式
+ */
 .brand-subtitle {
   font-size: 12px;
   color: #9a8370;
   margin-top: 2px;
 }
 
+/**
+ * 菜单容器样式
+ */
 .menu-wrap {
   flex: 1;
   overflow: auto;
   padding: 4px 4px 0;
 }
 
+/**
+ * 菜单组间距
+ */
 .menu-group + .menu-group {
   margin-top: 20px;
 }
 
+/**
+ * 菜单组标题样式
+ */
 .menu-group-title {
   font-size: 12px;
   color: #a08b77;
   padding: 0 10px 8px;
 }
 
+/**
+ * 菜单项样式
+ */
 .menu-item {
   height: 42px;
   border-radius: 14px;
@@ -147,16 +203,25 @@ function isActive(path: string) {
   transition: all 0.2s ease;
 }
 
+/**
+ * 菜单项悬停样式
+ */
 .menu-item:hover {
   background: rgba(184, 157, 135, 0.12);
 }
 
+/**
+ * 菜单项激活样式
+ */
 .menu-item.active {
   background: linear-gradient(135deg, rgba(184, 157, 135, 0.22), rgba(143, 109, 86, 0.16));
   color: #4f3928;
   font-weight: 600;
 }
 
+/**
+ * 菜单项图标样式
+ */
 .menu-item-icon {
   font-size: 18px;
 }

@@ -1,7 +1,25 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { useColorMode } from '#imports'
+import { useUserStore } from '~/stores/user'
+/**
+ * 应用头部组件
+ * <p>
+ * 功能：显示应用的头部信息，包括页面标题、搜索框、深色模式切换和用户菜单
+ */
 const route = useRoute()
+/**
+ * 用户状态管理
+ */
+const userStore = useUserStore()
+/**
+ * 颜色模式管理
+ */
 const colorMode = useColorMode()
-
+/**
+ * 页面标题映射
+ */
 const titleMap: Record<string, string> = {
   '/': '首页',
   '/login': '登录',
@@ -11,17 +29,50 @@ const titleMap: Record<string, string> = {
   '/settings/preferences': '偏好设置',
   '/settings/password': '修改密码'
 }
-
+/**
+ * 页面标题
+ */
 const pageTitle = computed(() => {
   return titleMap[route.path] || 'MoBe'
 })
-
+/**
+ * 是否深色模式
+ */
 const isDark = computed({
   get: () => colorMode.value === 'dark',
   set: (value: boolean) => {
     colorMode.preference = value ? 'dark' : 'light'
   }
 })
+/**
+ * 用户菜单项
+ */
+const menuItems = computed(() => [
+  [
+    {
+      label: '个人中心',
+      icon: 'i-lucide-user-round',
+      to: '/profile'
+    }
+  ],
+  [
+    {
+      label: '会话管理',
+      icon: 'i-lucide-monitor-smartphone',
+      to: '/sessions'
+    }
+  ],
+  [
+    {
+      label: '退出登录',
+      icon: 'i-lucide-log-out',
+      click: async () => {
+        userStore.logout()
+        await navigateTo('/login')
+      }
+    }
+  ]
+])
 </script>
 
 <template>
@@ -47,13 +98,7 @@ const isDark = computed({
         <USwitch v-model="isDark" />
       </UTooltip>
 
-      <UDropdownMenu
-        :items="[
-          [{ label: '个人中心', icon: 'i-lucide-user-round', to: '/profile' }],
-          [{ label: '会话管理', icon: 'i-lucide-monitor-smartphone', to: '/sessions' }],
-          [{ label: '退出登录', icon: 'i-lucide-log-out', color: 'error' }]
-        ]"
-      >
+      <UDropdownMenu :items="menuItems">
         <UButton
           color="neutral"
           variant="soft"
@@ -76,7 +121,6 @@ const isDark = computed({
 .header-card {
   height: 100%;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(120, 90, 60, 0.08);
   box-shadow: 0 10px 30px rgba(95, 71, 47, 0.05);
   padding: 0 20px;

@@ -166,21 +166,22 @@ onMounted(() => {
   min-width: 120px;
   height: 40px;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.4);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   overflow: hidden;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   transition: all 0.2s ease;
 }
-
 /**
  * 鼠标悬停时的样式
  */
 .captcha-canvas-wrap:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 /**

@@ -1,35 +1,55 @@
+<script setup lang="ts">
+import UDropdownMenu from '@/components/ui/dropdown-menu'
+import UButton from '@/components/ui/button'
+</script>
+
 <template>
+  <!--
+    模板菜单组件
+    <p>
+    功能：显示可选择的模板列表，点击可跳转到对应的模板页面
+    说明：使用 UDropdownMenu 组件实现下拉菜单功能
+    -->
   <UDropdownMenu
     v-slot="{ open }"
     :modal="false"
-    :items="[{
-      label: 'Starter',
-      to: 'https://starter-template.nuxt.dev/',
-      color: 'primary',
-      checked: true,
-      type: 'checkbox'
-    }, {
-      label: 'Landing',
-      to: 'https://landing-template.nuxt.dev/'
-    }, {
-      label: 'Docs',
-      to: 'https://docs-template.nuxt.dev/'
-    }, {
-      label: 'SaaS',
-      to: 'https://saas-template.nuxt.dev/'
-    }, {
-      label: 'Dashboard',
-      to: 'https://dashboard-template.nuxt.dev/'
-    }, {
-      label: 'Chat',
-      to: 'https://chat-template.nuxt.dev/'
-    }, {
-      label: 'Portfolio',
-      to: 'https://portfolio-template.nuxt.dev/'
-    }, {
-      label: 'Changelog',
-      to: 'https://changelog-template.nuxt.dev/'
-    }]"
+    :items="[
+      {
+        label: 'Starter',
+        to: 'https://starter-template.nuxt.dev/',
+        color: 'primary',
+        checked: true,
+        type: 'checkbox'
+      },
+      {
+        label: 'Landing',
+        to: 'https://landing-template.nuxt.dev/'
+      },
+      {
+        label: 'Docs',
+        to: 'https://docs-template.nuxt.dev/'
+      },
+      {
+        label: 'SaaS',
+        to: 'https://saas-template.nuxt.dev/'
+      },
+      {
+        label: 'Dashboard',
+        to: 'https://dashboard-template.nuxt.dev/'
+      },
+      {
+        label: 'Chat',
+        to: 'https://chat-template.nuxt.dev/'
+      },
+      {
+        label: 'Portfolio',
+        to: 'https://portfolio-template.nuxt.dev/'
+      },
+      {
+        label: 'Changelog',
+        to: 'https://changelog-template.nuxt.dev/'
+      }
+    ]"
     :content="{ align: 'start' }"
     :ui="{ content: 'min-w-fit' }"
     size="xs"
