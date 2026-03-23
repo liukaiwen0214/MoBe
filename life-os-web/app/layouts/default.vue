@@ -152,27 +152,6 @@ function closeMobileSidebar() {
   border-right: 1px solid var(--mobe-divider);
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.22s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.slide-left-enter-active,
-.slide-left-leave-active {
-  transition: all 0.24s ease;
-}
-
-.slide-left-enter-from,
-.slide-left-leave-to {
-  opacity: 0;
-  transform: translateX(-16px);
-}
-
 @media (max-width: 1023px) {
   .app-main {
     grid-template-rows: 56px minmax(0, 1fr) 40px;

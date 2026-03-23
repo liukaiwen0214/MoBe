@@ -7,8 +7,19 @@ definePageMeta({
   middleware: 'auth'
 })
 
-// 选择器常量定义
-const SELECTORS = {
+/**
+ * 行为标识常量
+ * 用于 script 动态创建的 DOM 节点，避免把样式类名同时当作逻辑选择器使用
+ */
+const DOM_ACTIONS = {
+  TOGGLE_GROUP_DATE: 'toggle-group-date'
+} as const
+
+/**
+ * 样式类常量
+ * 仅用于统一 className，避免散落字符串，同时降低动态 DOM 场景下的维护成本
+ */
+const UI_CLASSES = {
   GROUP_DATE_BTN: 'group-date-btn',
   GROUP_DATE_CONTENT: 'group-date-content',
   GROUP_DATE_ARROW_WRAP: 'group-date-arrow-wrap',
@@ -17,7 +28,7 @@ const SELECTORS = {
   GROUP_DATE_SEP: 'group-date-sep',
   GROUP_DATE_WEEKDAY: 'group-date-weekday',
   GROUP_DATE_COUNT: 'group-date-count'
-}
+} as const
 
 type BillType = 'INCOME' | 'EXPENSE'
 
@@ -223,7 +234,7 @@ const columns = computed<TableColumn<BillTableRow>[]>(() => [
     header: ({ table }) =>
       h(UCheckbox, {
         modelValue: table.getIsAllPageRowsSelected(),
-        'onUpdate:modelValue': (value: boolean) => table.toggleAllPageRowsSelected(!!value),
+        'onUpdate:modelValue': (value: boolean) => table.toggleAllPageRowsSelected(value),
         'aria-label': '全选'
       }),
     cell: ({ row }) => {
@@ -235,7 +246,7 @@ const columns = computed<TableColumn<BillTableRow>[]>(() => [
 
       return h(UCheckbox, {
         modelValue: row.getIsSelected(),
-        'onUpdate:modelValue': (value: boolean) => row.toggleSelected(!!value),
+        'onUpdate:modelValue': (value: boolean) => row.toggleSelected(value),
         'aria-label': '选择当前行'
       })
     },
@@ -281,22 +292,24 @@ const columns = computed<TableColumn<BillTableRow>[]>(() => [
           'button',
           {
             type: 'button',
-            class: SELECTORS.GROUP_DATE_BTN,
+            class: UI_CLASSES.GROUP_DATE_BTN,
+            'data-action': DOM_ACTIONS.TOGGLE_GROUP_DATE,
+            'aria-expanded': row.getIsExpanded(),
             onClick: () => row.toggleExpanded()
           },
           [
-            h('div', { class: SELECTORS.GROUP_DATE_CONTENT }, [
-              h('span', { class: SELECTORS.GROUP_DATE_ARROW_WRAP }, [
+            h('div', { class: UI_CLASSES.GROUP_DATE_CONTENT }, [
+              h('span', { class: UI_CLASSES.GROUP_DATE_ARROW_WRAP }, [
                 h(UIcon, {
                   name: row.getIsExpanded() ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right',
-                  class: SELECTORS.GROUP_DATE_ARROW
+                  class: UI_CLASSES.GROUP_DATE_ARROW
                 })
               ]),
-              h('span', { class: SELECTORS.GROUP_DATE_TEXT }, currentRow.label),
-              h('span', { class: SELECTORS.GROUP_DATE_SEP }, '｜'),
-              h('span', { class: SELECTORS.GROUP_DATE_WEEKDAY }, currentRow.weekday),
-              h('span', { class: SELECTORS.GROUP_DATE_SEP }, '｜'),
-              h('span', { class: SELECTORS.GROUP_DATE_COUNT }, `${currentRow.count} 笔`)
+              h('span', { class: UI_CLASSES.GROUP_DATE_TEXT }, currentRow.label),
+              h('span', { class: UI_CLASSES.GROUP_DATE_SEP }, '｜'),
+              h('span', { class: UI_CLASSES.GROUP_DATE_WEEKDAY }, currentRow.weekday),
+              h('span', { class: UI_CLASSES.GROUP_DATE_SEP }, '｜'),
+              h('span', { class: UI_CLASSES.GROUP_DATE_COUNT }, `${currentRow.count} 笔`)
             ])
           ]
         )
@@ -645,63 +658,6 @@ onMounted(async () => {
 
 .bills-table {
   min-width: 1080px;
-}
-
-/* 以下类名在JavaScript中通过SELECTORS常量定义和使用 */
-
-.group-date-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  background: transparent;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  text-align: left;
-}
-
-.group-date-content {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 22px;
-  white-space: nowrap;
-}
-
-.group-date-arrow-wrap {
-  width: 16px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 16px;
-}
-
-.group-date-arrow {
-  width: 16px;
-  height: 16px;
-  display: block;
-  line-height: 0;
-  font-size: 0;
-  color: var(--mobe-text);
-}
-
-.group-date-text {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--mobe-text);
-}
-
-.group-date-weekday,
-.group-date-count {
-  font-size: 13px;
-  color: var(--mobe-text-soft);
-}
-
-.group-date-sep {
-  font-size: 12px;
-  color: var(--mobe-text-soft);
-  opacity: 0.7;
 }
 
 @media (max-width: 1023px) {
