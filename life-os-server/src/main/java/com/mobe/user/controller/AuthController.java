@@ -64,7 +64,7 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<UserLoginResponse> login(@Valid @RequestBody UserLoginRequest request,
                                                 HttpServletRequest httpServletRequest) {
-        log.info("收到用户登录请求，account={}, rememberMe={}", request.getAccount(), request.getRememberMe());
+        log.info("收到用户登录请求，account={}, code={}, rememberMe={}", request.getAccount(),request.getCode(), request.getRememberMe());
 
         UserLoginResponse response = userService.login(request, httpServletRequest);
         return ApiResponse.success("登录成功", response);

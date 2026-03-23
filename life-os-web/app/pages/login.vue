@@ -86,7 +86,8 @@ async function fetchCaptcha() {
     const payload = unwrapResponse(res)
 
     if (!payload?.success || !payload?.data?.captchaId) {
-      throw new Error(payload?.message || '获取验证码失败')
+      systemToast.error('获取验证码失败', payload?.message || '请稍后重试', 'captcha-error')
+      return
     }
 
     captcha.captchaId = payload.data.captchaId
@@ -138,12 +139,17 @@ async function handleLogin() {
     const res = await loginApi({
       account: loginForm.account.trim(),
       password: loginForm.password,
-      rememberMe: loginForm.rememberMe ? 1 : 0
+      rememberMe: loginForm.rememberMe ? 1 : 0,
+      captchaId: captcha.captchaId,
+      code: loginForm.captchaCode.trim()
     })
     const payload = unwrapResponse(res)
 
     if (!payload?.success || !payload?.data?.sessionToken) {
-      throw new Error(payload?.message || '登录失败')
+      userStore.logout()
+      await fetchCaptcha()
+      systemToast.error('登录失败', payload?.message || '登录失败，请稍后重试', 'login-error')
+      return
     }
 
     userStore.setToken(payload.data.sessionToken)
@@ -266,7 +272,8 @@ async function handleSendRegisterCode() {
     const payload = unwrapResponse(res)
 
     if (!payload?.success) {
-      throw new Error(payload?.message || '发送验证码失败')
+      systemToast.error('发送失败', payload?.message || '发送验证码失败', 'register-code-error')
+      return
     }
 
     startCountdown()
@@ -298,7 +305,8 @@ async function handleRegister() {
     const payload = unwrapResponse(res)
 
     if (!payload?.success) {
-      throw new Error(payload?.message || '注册失败')
+      systemToast.error('注册失败', payload?.message || '注册失败，请稍后重试', 'register-error')
+      return
     }
 
     systemToast.success('注册成功', '现在可以登录了', 'register-success')
@@ -781,10 +789,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 40px;
   box-sizing: border-box;
-  background-color: #f4eeec;
-  background-image:
-    radial-gradient(73% 147% at 22% 18%, #EADFDF 59%, #ECE2DF 100%),
-    radial-gradient(91% 146% at 82% 16%, rgba(255, 255, 255, 0.50) 47%, rgba(0, 0, 0, 0.50) 100%);
+  background-image: linear-gradient(120deg, #fdfbfb 0%, #ebedee 100%);
   background-blend-mode: screen;
 }
 
@@ -1090,23 +1095,201 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: #d08b95;
 }
+@media (max-width: 1023px) {
+  .login-page {
+    position: relative;
+    min-height: 100vh;
+    padding: 20px 14px;
+    align-items: stretch;
+  }
 
-.fade-slide-enter-active,
-.fade-slide-leave-active,
-.panel-switch-enter-active,
-.panel-switch-leave-active {
-  transition: all 0.28s ease;
+  .auth-card {
+    width: 100%;
+    max-width: 100%;
+    min-height: auto;
+    grid-template-columns: 1fr;
+    border-radius: 24px;
+    transform: none !important;
+  }
+
+  .auth-left {
+    padding: 28px 22px 12px;
+  }
+
+  .auth-left h1 {
+    margin: 14px 0 8px;
+    font-size: 34px;
+    line-height: 1.12;
+  }
+
+  .auth-left p {
+    max-width: none;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .auth-right {
+    padding: 12px 14px 16px;
+  }
+
+  .login-panel {
+    max-width: 100%;
+    padding: 24px 18px 20px;
+    border-radius: 22px;
+  }
+
+  .login-head {
+    margin-bottom: 20px;
+  }
+
+  .login-head h2 {
+    font-size: 26px;
+  }
+
+  .login-head p {
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .login-form {
+    gap: 16px;
+  }
+
+  .login-buttons {
+    margin-top: 4px;
+  }
+
+  .login-footer {
+    margin-top: 14px;
+  }
 }
 
-.fade-slide-enter-from,
-.panel-switch-enter-from {
-  opacity: 0;
-  transform: translateY(10px);
+@media (max-width: 767px) {
+  .login-page {
+    padding: 12px;
+  }
+
+  .auth-card {
+    border-radius: 20px;
+  }
+
+  .auth-left {
+    padding: 22px 16px 8px;
+  }
+
+  .auth-badge {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .auth-left h1 {
+    font-size: 28px;
+    margin: 12px 0 6px;
+  }
+
+  .auth-left p {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .auth-right {
+    padding: 8px 10px 12px;
+  }
+
+  .login-panel {
+    padding: 18px 14px 16px;
+    border-radius: 18px;
+  }
+
+  .login-head {
+    margin-bottom: 16px;
+  }
+
+  .login-kicker {
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .login-head h2 {
+    font-size: 24px;
+  }
+
+  .login-head p {
+    font-size: 12px;
+    margin-top: 8px;
+  }
+
+  .captcha-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .captcha-box-wrap,
+  .send-code-btn {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .captcha-box {
+    width: 100%;
+  }
+
+  .login-actions {
+    gap: 10px;
+    align-items: center;
+  }
+
+  .link-btn {
+    font-size: 12px;
+  }
+
+  .floating-label {
+    font-size: 11px;
+  }
+
+  .peer-placeholder-shown ~ .floating-label {
+    font-size: 13px;
+  }
 }
 
-.fade-slide-leave-to,
-.panel-switch-leave-to {
-  opacity: 0;
-  transform: translateY(-10px);
+@media (max-width: 479px) {
+  .login-page {
+    padding: 10px;
+  }
+
+  .auth-card {
+    border-radius: 18px;
+  }
+
+  .auth-left {
+    padding: 18px 14px 6px;
+  }
+
+  .auth-left h1 {
+    font-size: 24px;
+  }
+
+  .auth-left p {
+    font-size: 12px;
+  }
+
+  .login-panel {
+    padding: 16px 12px 14px;
+    border-radius: 16px;
+  }
+
+  .login-head h2 {
+    font-size: 22px;
+  }
+
+  .login-actions {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .login-submit,
+  .login-register {
+    min-height: 44px;
+  }
 }
 </style>

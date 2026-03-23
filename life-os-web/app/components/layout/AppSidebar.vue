@@ -1,104 +1,139 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
-import { NuxtLink } from '#components'
-
 /**
  * 应用侧边栏组件
  * <p>
- * 功能：显示应用的侧边导航菜单，包括核心功能和用户相关功能
- * 说明：使用 Vue 3 的组合式 API 开发
+ * 功能：显示应用的侧边栏导航菜单，包括品牌标识、菜单分组和菜单项
+ * 说明：使用 Vue 3 组合式 API 构建，支持折叠和移动端适配
  */
 
 /**
- * 路由对象
+ * 组件属性
  */
+const props = defineProps<{
+  /**
+   * 是否折叠
+   * <p>
+   * 说明：控制侧边栏是否处于折叠状态
+   */
+  collapsed?: boolean
+  /**
+   * 是否为移动端
+   * <p>
+   * 说明：控制侧边栏是否为移动端模式
+   */
+  mobile?: boolean
+}>()
+
+/**
+ * 组件事件
+ */
+const emit = defineEmits<{
+  /**
+   * 切换侧边栏状态事件
+   * <p>
+   * 说明：当用户点击切换按钮时触发
+   */
+  toggle: []
+  /**
+   * 导航事件
+   * <p>
+   * 说明：当用户在移动端点击菜单项时触发
+   */
+  navigate: []
+}>()
+
+// 导入路由相关函数
 const route = useRoute()
 
 /**
- * 菜单组配置
+ * 菜单分组配置
  * <p>
- * 说明：包含多个菜单组，每个菜单组包含多个菜单项
+ * 说明：定义侧边栏的菜单分组和菜单项
  */
 const menuGroups = [
   {
     title: '核心',
     items: [
-      { label: '首页', to: '/', icon: 'i-lucide-house' },
-      { label: '任务', to: '/tasks', icon: 'i-lucide-list-todo' },
-      { label: '日程', to: '/calendar', icon: 'i-lucide-calendar-days' },
-      { label: '笔记', to: '/notes', icon: 'i-lucide-notebook-text' },
-      { label: '文件', to: '/files', icon: 'i-lucide-folder' }
+      { label: '首页', icon: 'i-lucide-house', to: '/' },
+      { label: '任务', icon: 'i-lucide-list-todo', to: '/tasks' },
+      { label: '日程', icon: 'i-lucide-calendar-days', to: '/calendar' },
+      { label: '笔记', icon: 'i-lucide-notebook-text', to: '/notes' },
+      { label: '文件', icon: 'i-lucide-folder', to: '/files' }
     ]
   },
   {
-    title: '用户',
+    title: '生活',
     items: [
-      { label: '个人中心', to: '/profile', icon: 'i-lucide-user-round' },
-      { label: '会话管理', to: '/sessions', icon: 'i-lucide-monitor-smartphone' },
-      { label: '偏好设置', to: '/settings/preferences', icon: 'i-lucide-sliders-horizontal' },
-      { label: '修改密码', to: '/settings/password', icon: 'i-lucide-key-round' }
+      { label: '清单', icon: 'i-lucide-check-check', to: '/lists' },
+      { label: '习惯', icon: 'i-lucide-repeat', to: '/habits' },
+      { label: '目标', icon: 'i-lucide-flag', to: '/goals' },
+      { label: '账单', icon: 'i-lucide-wallet-cards', to: '/bills' }
+    ]
+  },
+  {
+    title: '智能',
+    items: [
+      { label: '统计', icon: 'i-lucide-chart-column', to: '/statistics' },
+      { label: 'AI 助手', icon: 'i-lucide-sparkles', to: '/assistant' }
     ]
   }
 ]
 
 /**
- * 检查菜单项是否激活
+ * 处理导航事件
  * <p>
- * 功能：根据当前路由路径检查菜单项是否激活
- * @param path 菜单项的路径
- * @returns boolean 是否激活
+ * 功能：在移动端模式下，点击菜单项后触发导航事件
  */
-function isActive(path: string) {
-  if (path === '/') {
-    return route.path === '/'
+function handleNavigate() {
+  if (props.mobile) {
+    emit('navigate')
   }
-  return route.path.startsWith(path)
 }
 </script>
 
 <template>
-  <!-- 侧边栏卡片容器 -->
-  <div class="sidebar-card">
-    <!-- 品牌标识 -->
-    <div class="brand">
-      <div class="brand-badge">
-        M
-      </div>
-      <div class="brand-text">
-        <div class="brand-title">
-          MoBe
+  <div class="sidebar-wrap" :class="{ collapsed: collapsed }">
+    <div class="sidebar-top">
+      <NuxtLink to="/" class="brand" @click="handleNavigate">
+        <div class="brand-logo">
+          茉
         </div>
-        <div class="brand-subtitle">
-          Life OS
+
+        <div v-if="!collapsed" class="brand-text">
+          <div class="brand-name">MoBe</div>
+          <div class="brand-sub">Life OS</div>
         </div>
-      </div>
+      </NuxtLink>
+
+      <button
+        class="sidebar-toggle"
+        type="button"
+        @click="emit('toggle')"
+      >
+        <UIcon :name="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" />
+      </button>
     </div>
 
-    <!-- 菜单容器 -->
-    <div class="menu-wrap">
-      <!-- 菜单组 -->
+    <div class="sidebar-body">
       <div
         v-for="group in menuGroups"
         :key="group.title"
         class="menu-group"
       >
-        <div class="menu-group-title">
+        <div v-if="!collapsed" class="menu-group-title">
           {{ group.title }}
         </div>
 
-        <!-- 菜单项 -->
         <NuxtLink
           v-for="item in group.items"
           :key="item.to"
           :to="item.to"
           class="menu-item"
-          :class="{ active: isActive(item.to) }"
+          :class="{ active: route.path === item.to, collapsed: collapsed }"
+          @click="handleNavigate"
         >
-          <UIcon
-            :name="item.icon"
-            class="menu-item-icon"
-          />
-          <span>{{ item.label }}</span>
+          <UIcon :name="item.icon" class="menu-icon" />
+          <span v-if="!collapsed" class="menu-label">{{ item.label }}</span>
         </NuxtLink>
       </div>
     </div>
@@ -106,123 +141,145 @@ function isActive(path: string) {
 </template>
 
 <style scoped>
-/**
- * 侧边栏卡片样式
- */
-.sidebar-card {
-  height: calc(100vh - 32px);
-  border-radius: 28px;
-  border: 1px solid rgba(120, 90, 60, 0.08);
-  box-shadow: 0 12px 36px rgba(95, 71, 47, 0.07);
-  padding: 18px 14px;
-  box-sizing: border-box;
+.sidebar-wrap {
+  height: 100%;
   display: flex;
   flex-direction: column;
+  padding: 18px 14px;
+  background: transparent;
 }
 
-/**
- * 品牌标识样式
- */
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
 .brand {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px 18px;
+  text-decoration: none;
 }
 
-/**
- * 品牌徽章样式
- */
-.brand-badge {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #8f6d56, #b89d87);
-  color: #fff;
+.brand-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--mobe-radius-md);
+  background: var(--mobe-primary-soft);
+  color: var(--mobe-primary);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 20px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
-/**
- * 品牌标题样式
- */
-.brand-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #5f4730;
+.brand-text {
+  min-width: 0;
 }
 
-/**
- * 品牌副标题样式
- */
-.brand-subtitle {
-  font-size: 12px;
-  color: #9a8370;
+.brand-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--mobe-text);
+  line-height: 1.2;
+}
+
+.brand-sub {
   margin-top: 2px;
+  font-size: var(--mobe-font-xs);
+  color: var(--mobe-text-soft);
 }
 
-/**
- * 菜单容器样式
- */
-.menu-wrap {
-  flex: 1;
-  overflow: auto;
-  padding: 4px 4px 0;
+.sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--mobe-text-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--mobe-radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-/**
- * 菜单组间距
- */
-.menu-group + .menu-group {
-  margin-top: 20px;
+.sidebar-toggle:hover {
+  background: var(--mobe-surface-soft);
 }
 
-/**
- * 菜单组标题样式
- */
+.sidebar-body {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .menu-group-title {
-  font-size: 12px;
-  color: #a08b77;
-  padding: 0 10px 8px;
+  padding: 0 10px;
+  font-size: var(--mobe-font-xs);
+  color: var(--mobe-text-mute);
+  margin-bottom: 4px;
 }
 
-/**
- * 菜单项样式
- */
 .menu-item {
-  height: 42px;
-  border-radius: 14px;
-  padding: 0 12px;
+  height: 40px;
+  border-radius: var(--mobe-radius-md);
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #6d5745;
+  padding: 0 12px;
   text-decoration: none;
-  transition: all 0.2s ease;
+  color: var(--mobe-text-soft);
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
-/**
- * 菜单项悬停样式
- */
 .menu-item:hover {
-  background: rgba(184, 157, 135, 0.12);
+  background: color-mix(in srgb, var(--mobe-text) 6%, transparent);
+  color: var(--mobe-text);
 }
 
-/**
- * 菜单项激活样式
- */
 .menu-item.active {
-  background: linear-gradient(135deg, rgba(184, 157, 135, 0.22), rgba(143, 109, 86, 0.16));
-  color: #4f3928;
-  font-weight: 600;
+  background: var(--mobe-primary-soft);
+  color: var(--mobe-text);
 }
 
-/**
- * 菜单项图标样式
- */
-.menu-item-icon {
-  font-size: 18px;
+.menu-item.collapsed {
+  justify-content: center;
+  padding: 0;
+}
+
+.menu-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.menu-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collapsed .brand {
+  justify-content: center;
+}
+
+.collapsed .sidebar-top {
+  flex-direction: column;
+  align-items: center;
 }
 </style>

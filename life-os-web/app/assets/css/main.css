@@ -1,6 +1,99 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+/* ========================================
+   MoBe Design Tokens
+   说明：
+   1. 所有页面统一从这里取颜色、字号、边框、圆角、阴影
+   2. 页面整体走“单平面 + 分割线 + 留白”风格
+   3. 只有少量真正需要承载内容的区域才允许轻边界感
+   ======================================== */
+
+:root {
+  /* ===== 基础背景 ===== */
+  --mobe-bg: #f7f8f4;
+  --mobe-surface: #f7f8f4;
+  --mobe-surface-soft: #fbfcf8;
+  --mobe-surface-elevated: #ffffff;
+
+  /* ===== 文本颜色 ===== */
+  --mobe-text: #23324a;
+  --mobe-text-soft: #6f7c90;
+  --mobe-text-mute: #96a0b1;
+
+  /* ===== 品牌色 ===== */
+  --mobe-primary: #4f8f67;
+  --mobe-primary-soft: rgba(79, 143, 103, 0.1);
+
+  /* ===== 状态色 ===== */
+  --mobe-success: #159a62;
+  --mobe-danger: #dc4c64;
+  --mobe-warning: #d97706;
+
+  /* ===== 边框 / 分割线 ===== */
+  --mobe-border: rgba(35, 50, 74, 0.1);
+  --mobe-border-soft: rgba(35, 50, 74, 0.06);
+  --mobe-divider: rgba(35, 50, 74, 0.08);
+
+  /* ===== 圆角 ===== */
+  --mobe-radius-xs: 6px;
+  --mobe-radius-sm: 8px;
+  --mobe-radius-md: 10px;
+  --mobe-radius-lg: 12px;
+
+  /* ===== 阴影 ===== */
+  --mobe-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --mobe-shadow-sm: 0 4px 12px rgba(15, 23, 42, 0.04);
+
+  /* ===== 字号 ===== */
+  --mobe-font-xs: 12px;
+  --mobe-font-sm: 13px;
+  --mobe-font-md: 14px;
+  --mobe-font-lg: 16px;
+  --mobe-font-xl: 20px;
+  --mobe-font-2xl: 28px;
+
+  /* ===== 间距 ===== */
+  --mobe-space-1: 4px;
+  --mobe-space-2: 8px;
+  --mobe-space-3: 12px;
+  --mobe-space-4: 16px;
+  --mobe-space-5: 20px;
+  --mobe-space-6: 24px;
+  --mobe-space-7: 32px;
+}
+
+.dark {
+  /* ===== 黑夜模式背景 ===== */
+  --mobe-bg: #0f141b;
+  --mobe-surface: #0f141b;
+  --mobe-surface-soft: #131a22;
+  --mobe-surface-elevated: #161f2a;
+
+  /* ===== 黑夜模式文本 ===== */
+  --mobe-text: #edf2fb;
+  --mobe-text-soft: #9aa8bb;
+  --mobe-text-mute: #718196;
+
+  /* ===== 品牌色 ===== */
+  --mobe-primary: #68b07f;
+  --mobe-primary-soft: rgba(104, 176, 127, 0.14);
+
+  /* ===== 状态色 ===== */
+  --mobe-success: #34d399;
+  --mobe-danger: #fb7185;
+  --mobe-warning: #f59e0b;
+
+  /* ===== 黑夜模式边框 ===== */
+  --mobe-border: rgba(237, 242, 251, 0.1);
+  --mobe-border-soft: rgba(237, 242, 251, 0.06);
+  --mobe-divider: rgba(237, 242, 251, 0.08);
+
+  /* ===== 阴影 ===== */
+  --mobe-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --mobe-shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
 html,
 body,
 #__nuxt {
@@ -8,11 +101,212 @@ body,
   min-height: 100%;
 }
 
+html {
+  background: var(--mobe-bg);
+}
+
 body {
   font-family:
     Inter,
     -apple-system,
     BlinkMacSystemFont,
-    'Segoe UI',
+    "Segoe UI",
     sans-serif;
+  background: var(--mobe-bg);
+  color: var(--mobe-text);
+  font-size: var(--mobe-font-md);
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* ========================================
+   全局页面结构规范
+   说明：
+   1. page-shell：页面整体流式布局
+   2. page-header：页面头部，不用大卡片
+   3. page-toolbar：工具栏，不用大卡片
+   4. page-section：主内容区，可有轻边界
+   ======================================== */
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mobe-space-6);
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--mobe-space-4);
+  padding-bottom: var(--mobe-space-4);
+  border-bottom: 1px solid var(--mobe-divider);
+}
+
+.page-header__left {
+  min-width: 0;
+}
+
+.page-header__eyebrow {
+  font-size: var(--mobe-font-xs);
+  color: var(--mobe-text-mute);
+  margin-bottom: var(--mobe-space-1);
+}
+
+.page-header__title {
+  margin: 0;
+  font-size: var(--mobe-font-2xl);
+  line-height: 1.2;
+  color: var(--mobe-text);
+  font-weight: 700;
+}
+
+.page-header__desc {
+  margin: var(--mobe-space-2) 0 0;
+  font-size: var(--mobe-font-md);
+  color: var(--mobe-text-soft);
+}
+
+.page-header__right {
+  display: flex;
+  align-items: center;
+  gap: var(--mobe-space-3);
+  flex-shrink: 0;
+}
+
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mobe-space-4);
+  flex-wrap: wrap;
+}
+
+.page-toolbar__left,
+.page-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--mobe-space-3);
+  flex-wrap: wrap;
+}
+
+.page-section {
+  border: 1px solid var(--mobe-border-soft);
+  border-radius: var(--mobe-radius-md);
+  background: var(--mobe-surface-elevated);
+  box-shadow: var(--mobe-shadow-xs);
+}
+
+.page-section--plain {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ========================================
+   扁平统计信息
+   说明：
+   不使用明显卡片感，保持同一层级
+   ======================================== */
+
+.mobe-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--mobe-space-4);
+  padding: var(--mobe-space-4) 0;
+  border-top: 1px solid var(--mobe-divider);
+  border-bottom: 1px solid var(--mobe-divider);
+}
+
+.mobe-stat {
+  min-width: 0;
+}
+
+.mobe-stat__label {
+  display: block;
+  font-size: var(--mobe-font-xs);
+  color: var(--mobe-text-mute);
+}
+
+.mobe-stat__value {
+  display: block;
+  margin-top: var(--mobe-space-2);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--mobe-text);
+}
+
+.mobe-stat__value--success {
+  color: var(--mobe-success);
+}
+
+.mobe-stat__value--danger {
+  color: var(--mobe-danger);
+}
+
+/* ========================================
+   通用轻表面
+   ======================================== */
+
+.mobe-surface {
+  border: 1px solid var(--mobe-border-soft);
+  border-radius: var(--mobe-radius-md);
+  background: var(--mobe-surface-elevated);
+  box-shadow: var(--mobe-shadow-xs);
+}
+
+.mobe-muted-line {
+  border-top: 1px solid var(--mobe-divider);
+}
+
+/* ========================================
+   手机端适配
+   ======================================== */
+
+@media (max-width: 1023px) {
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-header__right {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .mobe-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .page-shell {
+    gap: var(--mobe-space-5);
+  }
+
+  .page-header__title {
+    font-size: 24px;
+  }
+
+  .page-header__desc {
+    font-size: var(--mobe-font-sm);
+  }
+
+  .mobe-stats {
+    grid-template-columns: 1fr;
+    gap: var(--mobe-space-3);
+  }
 }

@@ -11,7 +11,8 @@ const request = axios.create({
   /**
    * API 基础路径
    */
-  baseURL: 'http://119.91.216.175:8080/api/v1',
+  // baseURL: 'http://119.91.216.175:8080/api/v1',
+  baseURL: 'http://127.0.0.1:8080/api/v1',
   /**
    * 请求超时时间（毫秒）
    */

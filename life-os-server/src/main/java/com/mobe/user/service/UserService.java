@@ -133,7 +133,40 @@ public class UserService {
      * @return UserLoginResponse 登录结果，包含用户信息和令牌
      */
     public UserLoginResponse login(UserLoginRequest request, HttpServletRequest httpServletRequest) {
-        // 根据用户名或邮箱查询用户
+        // 1. 校验验证码
+        AuthCodeEntity authCode = authCodeMapper.selectOne(
+                new LambdaQueryWrapper<AuthCodeEntity>()
+                        .eq(AuthCodeEntity::getId, request.getCaptchaId())
+                        .eq(AuthCodeEntity::getType, "CAPTCHA")
+                        .eq(AuthCodeEntity::getStatus, "ACTIVE")
+                        .eq(AuthCodeEntity::getUsed, 0)
+                        .eq(AuthCodeEntity::getIsDeleted, 0)
+                        .last("LIMIT 1")
+        );
+
+        if (authCode == null) {
+            throw new BizException("验证码不存在或已失效");
+        }
+
+        if (authCode.getExpiresAt() == null || authCode.getExpiresAt().isBefore(LocalDateTime.now())) {
+            authCode.setStatus("EXPIRED");
+            authCode.setUpdatedAt(LocalDateTime.now());
+            authCodeMapper.updateById(authCode);
+            throw new BizException("验证码已过期");
+        }
+
+        if (!authCode.getCode().equalsIgnoreCase(request.getCode())) {
+            throw new BizException("验证码错误");
+        }
+
+        // 验证码校验成功，置为已使用
+        authCode.setUsed(1);
+        authCode.setUsedAt(LocalDateTime.now());
+        authCode.setStatus("USED");
+        authCode.setUpdatedAt(LocalDateTime.now());
+        authCodeMapper.updateById(authCode);
+
+        // 2. 根据用户名或邮箱查询用户
         UserEntity user = userMapper.selectOne(
                 new LambdaQueryWrapper<UserEntity>()
                         .and(wrapper -> wrapper
@@ -157,7 +190,7 @@ public class UserService {
             throw new BizException("密码错误");
         }
 
-        // 创建会话
+        // 3. 创建会话
         LocalDateTime now = LocalDateTime.now();
         int rememberMe = request.getRememberMe() != null ? request.getRememberMe() : 0;
         LocalDateTime expiresAt = rememberMe == 1 ? now.plusDays(7) : now.plusHours(12);
@@ -178,7 +211,7 @@ public class UserService {
 
         userSessionMapper.insert(session);
 
-        // 构建登录响应
+        // 4. 构建登录响应
         UserLoginResponse response = new UserLoginResponse();
         response.setUserId(user.getId());
         response.setUsername(user.getUsername());

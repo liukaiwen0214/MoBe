@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import UDropdownMenu from '@/components/ui/dropdown-menu'
-import UButton from '@/components/ui/button'
+/**
+ * 模板菜单组件
+ * <p>
+ * 功能：显示可选择的模板列表，点击可跳转到对应的模板页面
+ * 说明：使用 UDropdownMenu 组件实现下拉菜单功能
+ */
 </script>
 
 <template>
-  <!--
-    模板菜单组件
-    <p>
-    功能：显示可选择的模板列表，点击可跳转到对应的模板页面
-    说明：使用 UDropdownMenu 组件实现下拉菜单功能
-    -->
   <UDropdownMenu
     v-slot="{ open }"
     :modal="false"

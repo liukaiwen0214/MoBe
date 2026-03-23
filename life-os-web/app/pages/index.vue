@@ -1,204 +1,267 @@
 <script setup lang="ts">
-/**
- * 页面元数据配置
- * @middleware auth 仅认证用户可访问
- */
 definePageMeta({
   middleware: 'auth'
 })
 
-/**
- * 首页组件
- * <p>
- * 功能：应用首页，展示用户概览信息
- * 说明：包含欢迎区域和数据统计卡片
- * 应用场景：用户登录后看到的第一个页面
- */
+const overviewStats = [
+  {
+    label: '今日任务',
+    value: '12'
+  },
+  {
+    label: '今日日程',
+    value: '3'
+  },
+  {
+    label: '本周习惯',
+    value: '5 / 7'
+  },
+  {
+    label: '本月支出',
+    value: '¥1,268'
+  }
+]
+
+const quickLinks = [
+  {
+    title: '新建任务',
+    desc: '快速添加待办事项',
+    icon: 'i-lucide-circle-plus',
+    to: '/tasks'
+  },
+  {
+    title: '写一条笔记',
+    desc: '记录灵感与想法',
+    icon: 'i-lucide-square-pen',
+    to: '/notes'
+  },
+  {
+    title: '查看账单',
+    desc: '管理每日消费流水',
+    icon: 'i-lucide-wallet-cards',
+    to: '/bills'
+  },
+  {
+    title: '日程安排',
+    desc: '整理今天的计划',
+    icon: 'i-lucide-calendar-days',
+    to: '/calendar'
+  }
+]
+
+const recentNotes = [
+  { title: '首页框架调整想法', time: '今天 10:16' },
+  { title: '账单页分组展示草稿', time: '昨天 21:02' },
+  { title: '偏好设置字段整理', time: '昨天 18:30' }
+]
 </script>
 
 <template>
-  <!-- 页面容器 -->
-  <div class="page-wrap">
-    <!-- 欢迎区域 -->
-    <div class="hero-card">
-      <div>
-        <div class="hero-kicker">
-          今日概览
+  <div class="page-shell">
+    <div class="page-header">
+      <div class="page-header__left">
+        <div class="page-header__eyebrow">
+          Dashboard
         </div>
-        <h2>欢迎回来，开始整理今天的生活吧</h2>
-        <p>这里后面放仪表盘数据、快捷入口和统计概览。</p>
+        <h1 class="page-header__title">
+          欢迎回来
+        </h1>
+        <p class="page-header__desc">
+          从这里开始整理今天的任务、日程、习惯和生活记录。
+        </p>
       </div>
 
-      <UButton size="lg">
-        新建内容
-      </UButton>
-    </div>
-
-    <!-- 数据卡片网格 -->
-    <div class="grid-cards">
-      <!-- 任务数据卡片 -->
-      <div class="data-card">
-        <div class="card-title">
-          任务
-        </div>
-        <div class="card-value">
-          12
-        </div>
-      </div>
-
-      <!-- 日程数据卡片 -->
-      <div class="data-card">
-        <div class="card-title">
-          日程
-        </div>
-        <div class="card-value">
-          3
-        </div>
-      </div>
-
-      <!-- 会话数据卡片 -->
-      <div class="data-card">
-        <div class="card-title">
-          会话
-        </div>
-        <div class="card-value">
-          2
-        </div>
+      <div class="page-header__right">
+        <UButton icon="i-lucide-plus">
+          新建内容
+        </UButton>
       </div>
     </div>
+
+    <div class="mobe-stats">
+      <div
+        v-for="item in overviewStats"
+        :key="item.label"
+        class="mobe-stat"
+      >
+        <span class="mobe-stat__label">{{ item.label }}</span>
+        <span class="mobe-stat__value">{{ item.value }}</span>
+      </div>
+    </div>
+
+    <section class="home-section">
+      <div class="home-section__head">
+        <div>
+          <div class="home-section__title">
+            快捷入口
+          </div>
+          <div class="home-section__desc">
+            常用功能从这里快速进入
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-grid">
+        <NuxtLink
+          v-for="item in quickLinks"
+          :key="item.title"
+          :to="item.to"
+          class="quick-item"
+        >
+          <div class="quick-item__icon">
+            <UIcon :name="item.icon" />
+          </div>
+          <div class="quick-item__body">
+            <div class="quick-item__title">
+              {{ item.title }}
+            </div>
+            <div class="quick-item__desc">
+              {{ item.desc }}
+            </div>
+          </div>
+        </NuxtLink>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="home-section__head">
+        <div>
+          <div class="home-section__title">
+            最近笔记
+          </div>
+          <div class="home-section__desc">
+            最近记录下来的内容
+          </div>
+        </div>
+      </div>
+
+      <div class="recent-list">
+        <div
+          v-for="item in recentNotes"
+          :key="item.title"
+          class="recent-item"
+        >
+          <div class="recent-item__title">
+            {{ item.title }}
+          </div>
+          <div class="recent-item__time">
+            {{ item.time }}
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-/**
- * 页面容器样式
- * 说明：设置页面的基本布局
- * - display: flex 设置为 Flex 容器
- * - flex-direction: column 垂直排列子元素
- * - gap: 18px 设置子元素间距
- */
-.page-wrap {
+.home-section {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  
+  gap: var(--mobe-space-4);
 }
 
-/**
- * 欢迎卡片样式
- * 说明：设置欢迎区域的样式
- * - min-height: 180px 最小高度
- * - border-radius: 24px 设置圆角
- * - background: linear-gradient 设置渐变背景
- * - border: 1px solid 设置边框
- * - padding: 28px 设置内边距
- * - display: flex 设置为 Flex 容器
- * - align-items: flex-end 垂直对齐到底部
- * - justify-content: space-between 水平两端对齐
- * - gap: 16px 设置子元素间距
- */
-.hero-card {
-  min-height: 180px;
-  border-radius: 24px;
-  border: 1px solid rgba(120, 90, 60, 0.08);
-  padding: 28px;
+.home-section__head {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--mobe-space-4);
 }
 
-/**
- * 欢迎卡片小标题样式
- * 说明：设置欢迎卡片小标题的样式
- * - font-size: 13px 字体大小
- * - color: #9a8370 字体颜色
- * - margin-bottom: 10px 下边距
- */
-.hero-kicker {
-  font-size: 13px;
-  color: #9a8370;
-  margin-bottom: 10px;
-}
-
-/**
- * 欢迎卡片标题样式
- * 说明：设置欢迎卡片标题的样式
- * - margin: 0 0 8px 外边距
- * - font-size: 30px 字体大小
- * - color: #5f4730 字体颜色
- */
-.hero-card h2 {
-  margin: 0 0 8px;
-  font-size: 30px;
-  color: #5f4730;
-}
-
-/**
- * 欢迎卡片描述样式
- * 说明：设置欢迎卡片描述的样式
- * - margin: 0 外边距
- * - color: #8b7462 字体颜色
- */
-.hero-card p {
-  margin: 0;
-  color: #8b7462;
-}
-
-/**
- * 数据卡片网格样式
- * 说明：设置数据卡片网格的样式
- * - display: grid 设置为 Grid 容器
- * - grid-template-columns: repeat(3, minmax(0, 1fr)) 三列网格
- * - gap: 18px 设置网格间距
- */
-.grid-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-}
-
-/**
- * 数据卡片样式
- * 说明：设置数据卡片的样式
- * - min-height: 160px 最小高度
- * - border-radius: 22px 设置圆角
- * - background: rgba(255, 255, 255, 0.84) 设置背景颜色
- * - border: 1px solid 设置边框
- * - box-shadow: 0 10px 24px rgba(95, 71, 47, 0.04) 设置阴影
- * - padding: 22px 设置内边距
- */
-.data-card {
-  min-height: 160px;
-  border-radius: 22px;
-  border: 1px solid rgba(120, 90, 60, 0.08);
-  box-shadow: 0 10px 24px rgba(95, 71, 47, 0.04);
-  padding: 22px;
-}
-
-/**
- * 卡片标题样式
- * 说明：设置卡片标题的样式
- * - color: #9a8370 字体颜色
- * - font-size: 14px 字体大小
- */
-.card-title {
-  color: #9a8370;
-  font-size: 14px;
-}
-
-/**
- * 卡片数值样式
- * 说明：设置卡片数值的样式
- * - margin-top: 22px 上边距
- * - font-size: 36px 字体大小
- * - font-weight: 700 字体粗细
- * - color: #5f4730 字体颜色
- */
-.card-value {
-  margin-top: 22px;
-  font-size: 36px;
+.home-section__title {
+  font-size: var(--mobe-font-lg);
   font-weight: 700;
-  color: #5f4730;
+  color: var(--mobe-text);
+}
+
+.home-section__desc {
+  margin-top: var(--mobe-space-1);
+  font-size: var(--mobe-font-sm);
+  color: var(--mobe-text-soft);
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--mobe-space-4);
+}
+
+.quick-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--mobe-divider);
+  text-decoration: none;
+}
+
+.quick-item__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--mobe-radius-md);
+  background: var(--mobe-primary-soft);
+  color: var(--mobe-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.quick-item__body {
+  min-width: 0;
+}
+
+.quick-item__title {
+  font-size: var(--mobe-font-md);
+  font-weight: 600;
+  color: var(--mobe-text);
+}
+
+.quick-item__desc {
+  margin-top: 4px;
+  font-size: var(--mobe-font-sm);
+  color: var(--mobe-text-soft);
+  line-height: 1.5;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mobe-space-4);
+  padding: 14px 0;
+  border-top: 1px solid var(--mobe-divider);
+}
+
+.recent-item__title {
+  font-size: var(--mobe-font-md);
+  color: var(--mobe-text);
+}
+
+.recent-item__time {
+  font-size: var(--mobe-font-sm);
+  color: var(--mobe-text-soft);
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .quick-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recent-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

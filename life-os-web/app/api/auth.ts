@@ -23,7 +23,9 @@ export function getCaptchaApi() {
 export function loginApi(data: {
   account: string
   password: string
+  code:String
   rememberMe: number
+  captchaId: string
 }) {
   return request.post('/auth/login', data)
 }
