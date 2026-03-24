@@ -1,47 +1,21 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, reactive, ref, resolveComponent, watch } from 'vue'
-import { CalendarDate, parseDate } from '@internationalized/date'
-import type { TableColumn } from '@nuxt/ui'
-import type { ExpandedState, RowSelectionState, SortingState, VisibilityState } from '@tanstack/vue-table'
+
+import { computed, onMounted, reactive, ref, shallowRef, useTemplateRef, watch } from 'vue'
+import { CalendarDate, Time, parseDate, parseTime } from '@internationalized/date'
 import { createBillApi, pageBillsApi, deleteRecordApi, updateRecordApi, batchCreateBillsApi } from '~/api/bills'
+
+
 definePageMeta({
   middleware: 'auth'
 })
 
-const systemToast = useSystemToast()
-
-/**
- * 行为标识常量
- * 用于 script 动态创建的 DOM 节点，避免把样式类名同时当作逻辑选择器使用
- */
-const DOM_ACTIONS = {
-  TOGGLE_GROUP_DATE: 'toggle-group-date'
-} as const
-
-/**
- * 样式类常量
- * 仅用于统一 className，避免散落字符串，同时降低动态 DOM 场景下的维护成本
- */
-const UI_CLASSES = {
-  GROUP_DATE_BTN: 'group-date-btn',
-  GROUP_DATE_CONTENT: 'group-date-content',
-  GROUP_DATE_ARROW_WRAP: 'group-date-arrow-wrap',
-  GROUP_DATE_ARROW: 'group-date-arrow',
-  GROUP_DATE_TEXT: 'group-date-text',
-  GROUP_DATE_SEP: 'group-date-sep',
-  GROUP_DATE_WEEKDAY: 'group-date-weekday',
-  GROUP_DATE_COUNT: 'group-date-count'
-} as const
-
 type BillType = 'INCOME' | 'EXPENSE'
 type QuickDateFilter = 'ALL' | 'TODAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'LAST_30_DAYS'
 type DateFilterMode = 'NONE' | 'QUICK' | 'RANGE' | 'MONTH'
-
 type CalendarDateRangeValue = {
   start?: CalendarDate
   end?: CalendarDate
 }
-
 type BillRecord = {
   id: string
   type: BillType
@@ -50,67 +24,43 @@ type BillRecord = {
   recordDate: string
   remark?: string
 }
-
-type BillLeafRow = BillRecord & {
-  kind: 'item'
-}
-
-type BillGroupRow = {
+type BillGroup = {
   id: string
-  kind: 'group'
   day: string
-  label: string
   weekday: string
-  amount: number
   count: number
-  children: BillLeafRow[]
+  amount: number
+  items: BillRecord[]
 }
+type BillColumnKey = 'remark'
 
-type BillTableRow = BillGroupRow | BillLeafRow
-
-const UButton = resolveComponent('UButton')
-const UBadge = resolveComponent('UBadge')
-const UCheckbox = resolveComponent('UCheckbox')
-const UDropdownMenu = resolveComponent('UDropdownMenu')
-const UInput = resolveComponent('UInput')
-const USelect = resolveComponent('USelect')
-const USelectMenu = resolveComponent('USelectMenu')
-const UTextarea = resolveComponent('UTextarea')
-const UIcon = resolveComponent('UIcon')
+const systemToast = useSystemToast()
 
 const loading = ref(true)
 const creatingBill = ref(false)
+const editingBill = ref(false)
+const deletingBill = ref(false)
 const importingBills = ref(false)
 
 const createBillOpen = ref(false)
+const editBillOpen = ref(false)
+const deleteConfirmOpen = ref(false)
 const importOverlayOpen = ref(false)
+const filterPanelOpen = ref(false)
+
 const dragOver = ref(false)
 const selectedImportFile = ref<File | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
+const deletingBillId = ref('')
+const editingBillId = ref('')
+
 const billRecords = ref<BillRecord[]>([])
+const collapsedGroups = ref<Record<string, boolean>>({})
 
-const sorting = ref<SortingState>([
-  { id: 'recordDate', desc: true }
-])
-
-const rowSelection = ref<RowSelectionState>({})
-const columnVisibility = ref<VisibilityState>({
+const columnVisibility = reactive<Record<BillColumnKey, boolean>>({
   remark: true
 })
-const expanded = ref<ExpandedState>({})
-
-const datePickerOpen = ref(false)
-const timePickerOpen = ref(false)
-const categorySearchTerm = ref('')
-
-const rangePopoverOpen = ref(false)
-const monthPopoverOpen = ref(false)
-
-const hourListRef = ref<HTMLElement | null>(null)
-const minuteListRef = ref<HTMLElement | null>(null)
-const activeHourItemRef = ref<HTMLElement | null>(null)
-const activeMinuteItemRef = ref<HTMLElement | null>(null)
 
 const pagination = reactive({
   page: 1,
@@ -156,8 +106,22 @@ const filters = reactive({
 })
 
 const monthPickerYear = ref(new Date().getFullYear())
+const rangePopoverOpen = ref(false)
+const monthPopoverOpen = ref(false)
+
+const categorySearchTerm = ref('')
+const editCategorySearchTerm = ref('')
 
 const billForm = reactive({
+  date: '',
+  time: '',
+  type: 'EXPENSE' as BillType,
+  category: '餐饮',
+  amountInput: '',
+  remark: ''
+})
+
+const editBillForm = reactive({
   date: '',
   time: '',
   type: 'EXPENSE' as BillType,
@@ -173,25 +137,6 @@ const formErrors = reactive({
   category: '',
   amountInput: ''
 })
-const editingBill = ref(false)
-const deletingBill = ref(false)
-
-const editBillOpen = ref(false)
-const deleteConfirmOpen = ref(false)
-
-const editingBillId = ref<string>('')
-const deletingBillId = ref<string>('')
-
-const editCategorySearchTerm = ref('')
-
-const editBillForm = reactive({
-  date: '',
-  time: '',
-  type: 'EXPENSE' as BillType,
-  category: '餐饮',
-  amountInput: '',
-  remark: ''
-})
 
 const editFormErrors = reactive({
   date: '',
@@ -201,9 +146,89 @@ const editFormErrors = reactive({
   amountInput: ''
 })
 
-function isBillLeafRow(row: BillTableRow): row is BillLeafRow {
-  return row.kind === 'item'
-}
+const rangeCalendarValue = ref<any>({
+  start: undefined,
+  end: undefined
+})
+
+const createDateInputRef = useTemplateRef('createDateInput')
+const editDateInputRef = useTemplateRef('editDateInput')
+
+const createDatePopoverOpen = ref(false)
+const editDatePopoverOpen = ref(false)
+
+watch(rangeCalendarValue, (newValue) => {
+  const startChanged = filters.customDateRange.start !== newValue?.start
+  const endChanged = filters.customDateRange.end !== newValue?.end
+
+  if (startChanged || endChanged) {
+    filters.customDateRange = {
+      start: newValue?.start,
+      end: newValue?.end
+    }
+    filters.dateMode = newValue?.start || newValue?.end ? 'RANGE' : 'NONE'
+    filters.quickDate = 'ALL'
+    filters.month = undefined
+  }
+}, { deep: true })
+
+const activeFilterCount = computed(() => {
+  let count = 0
+
+  if (filters.keyword.trim()) count += 1
+  if (filters.type !== 'ALL') count += 1
+  if (filters.dateMode === 'QUICK' && filters.quickDate !== 'ALL') count += 1
+  if (filters.dateMode === 'RANGE' && (filters.customDateRange.start || filters.customDateRange.end)) count += 1
+  if (filters.dateMode === 'MONTH' && filters.month) count += 1
+
+  return count
+})
+
+const hasActiveFilters = computed(() => activeFilterCount.value > 0)
+
+const visibleColumnOptions = computed(() => [
+  { key: 'remark', label: '备注' }
+] as Array<{ key: BillColumnKey; label: string }>)
+
+const billDateValue = computed({
+  get() {
+    return billForm.date ? parseDate(billForm.date) : undefined
+  },
+  set(value: CalendarDate | undefined) {
+    billForm.date = value ? value.toString() : ''
+  }
+})
+
+const editBillDateValue = computed({
+  get() {
+    return editBillForm.date ? parseDate(editBillForm.date) : undefined
+  },
+  set(value: CalendarDate | undefined) {
+    editBillForm.date = value ? value.toString() : ''
+  }
+})
+
+const billTimeValue = computed({
+  get() {
+    return billForm.time ? parseTime(billForm.time) : undefined
+  },
+  set(value: Time | undefined) {
+    billForm.time = value
+      ? `${pad2(value.hour)}:${pad2(value.minute)}`
+      : ''
+  }
+})
+
+const editBillTimeValue = computed({
+  get() {
+    return editBillForm.time ? parseTime(editBillForm.time) : undefined
+  },
+  set(value: Time | undefined) {
+    editBillForm.time = value
+      ? `${pad2(value.hour)}:${pad2(value.minute)}`
+      : ''
+  }
+})
 
 function pad2(value: number) {
   return `${value}`.padStart(2, '0')
@@ -219,39 +244,22 @@ function getCurrentTimeString() {
   return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`
 }
 
-function formatDateDisplay(value: string) {
-  if (!value) return '请选择日期'
-
-  const date = new Date(`${value}T00:00:00`)
-  const yyyy = date.getFullYear()
-  const mm = pad2(date.getMonth() + 1)
-  const dd = pad2(date.getDate())
-  return `${yyyy} / ${mm} / ${dd}`
-}
-
-function formatTimeDisplay(value: string) {
-  return value || '请选择时间'
-}
-
 function formatDateTime(value: string) {
   const date = new Date(value)
-  const yyyy = date.getFullYear()
-  const mm = pad2(date.getMonth() + 1)
-  const dd = pad2(date.getDate())
-  const hh = pad2(date.getHours())
-  const mi = pad2(date.getMinutes())
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+function formatTimeOnly(value: string) {
+  const date = new Date(value)
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 }
 
 function formatDay(value: string) {
   const date = new Date(value)
-  const yyyy = date.getFullYear()
-  const mm = pad2(date.getMonth() + 1)
-  const dd = pad2(date.getDate())
-  return `${yyyy}-${mm}-${dd}`
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
-function formatWeekday(value: string): string {
+function formatWeekday(value: string) {
   const date = new Date(value)
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
   return weekdays[date.getDay()] || '周日'
@@ -264,6 +272,12 @@ function formatCurrency(amount: number) {
 
 function getTypeLabel(type: BillType) {
   return type === 'INCOME' ? '收入' : '支出'
+}
+
+function getTypeBadgeClass(type: BillType) {
+  return type === 'INCOME'
+    ? 'bill-type-badge bill-type-badge--income'
+    : 'bill-type-badge bill-type-badge--expense'
 }
 
 function formatRangeSummary(range: any) {
@@ -280,7 +294,6 @@ function formatMonthSummary(value?: any) {
   if (!value) {
     return '按月份'
   }
-
   return `${value.year} / ${pad2(value.month)}`
 }
 
@@ -307,7 +320,6 @@ function resetBillForm() {
   billForm.category = '餐饮'
   billForm.amountInput = ''
   billForm.remark = ''
-
   categorySearchTerm.value = ''
 
   formErrors.date = ''
@@ -325,109 +337,11 @@ function openCreateBillSlideover() {
 function closeCreateBillSlideover() {
   createBillOpen.value = false
 }
-
-const calendarDateValue = computed({
-  get() {
-    return billForm.date ? parseDate(billForm.date) : parseDate(getTodayDateString())
-  },
-  set(value: CalendarDate) {
-    billForm.date = value.toString()
-    datePickerOpen.value = false
-  }
-})
-
-const rangeCalendarValue = ref<any>({
-  start: undefined,
-  end: undefined
-})
-
-watch(rangeCalendarValue, (newValue) => {
-  // 避免循环更新：只有当值真正变化时才更新
-  const startChanged = filters.customDateRange.start !== newValue?.start
-  const endChanged = filters.customDateRange.end !== newValue?.end
-
-  if (startChanged || endChanged) {
-    filters.customDateRange = {
-      start: newValue?.start,
-      end: newValue?.end
-    }
-    filters.dateMode = newValue?.start || newValue?.end ? 'RANGE' : 'NONE'
-    filters.quickDate = 'ALL'
-    filters.month = undefined
-  }
-}, { deep: true })
-
-// 初始化rangeCalendarValue，避免循环更新
-if (!rangeCalendarValue.value.start && !rangeCalendarValue.value.end) {
-  rangeCalendarValue.value = { ...filters.customDateRange }
-}
-
-const hours = Array.from({ length: 24 }, (_, index) => pad2(index))
-const minutes = Array.from({ length: 60 }, (_, index) => pad2(index))
-
-const selectedHour = computed(() => billForm.time.split(':')[0] || '00')
-const selectedMinute = computed(() => billForm.time.split(':')[1] || '00')
-
-function updateBillTime(hour?: string, minute?: string) {
-  const nextHour = hour ?? selectedHour.value
-  const nextMinute = minute ?? selectedMinute.value
-  billForm.time = `${nextHour}:${nextMinute}`
-}
-
-async function selectHour(hour: string) {
-  updateBillTime(hour, undefined)
-  await scrollTimePickerToSelected()
-}
-
-async function selectMinute(minute: string) {
-  updateBillTime(undefined, minute)
-  await scrollTimePickerToSelected()
-}
-
-function setActiveHourItemRef(el: unknown, hour: string) {
-  if (selectedHour.value === hour) {
-    activeHourItemRef.value = el as HTMLElement | null
-  }
-}
-
-function setActiveMinuteItemRef(el: unknown, minute: string) {
-  if (selectedMinute.value === minute) {
-    activeMinuteItemRef.value = el as HTMLElement | null
-  }
-}
-
-function scrollActiveItemIntoView(container: HTMLElement | null, target: HTMLElement | null) {
-  if (!container || !target) return
-
-  const containerHeight = container.clientHeight
-  const targetTop = target.offsetTop
-  const targetHeight = target.offsetHeight
-  const nextScrollTop = targetTop - containerHeight / 2 + targetHeight / 2
-
-  container.scrollTo({
-    top: Math.max(0, nextScrollTop),
-    behavior: 'smooth'
-  })
-}
-
-async function scrollTimePickerToSelected() {
-  await nextTick()
-  scrollActiveItemIntoView(hourListRef.value, activeHourItemRef.value)
-  scrollActiveItemIntoView(minuteListRef.value, activeMinuteItemRef.value)
-}
-
-watch(timePickerOpen, async (open) => {
-  if (!open) return
-  await scrollTimePickerToSelected()
-})
-
 const parsedFormAmount = computed(() => parseAmount(billForm.amountInput))
-
 const amountPreviewText = computed(() => {
   if (!Number.isFinite(parsedFormAmount.value) || parsedFormAmount.value <= 0) {
     return '¥0.00'
   }
-
   return formatCurrency(parsedFormAmount.value)
 })
 
@@ -447,6 +361,24 @@ function validateBillForm() {
   }
 
   return !Object.values(formErrors).some(Boolean)
+}
+
+function validateEditBillForm() {
+  editFormErrors.date = editBillForm.date ? '' : '请选择日期'
+  editFormErrors.time = editBillForm.time ? '' : '请选择时间'
+  editFormErrors.type = editBillForm.type ? '' : '请选择类型'
+  editFormErrors.category = editBillForm.category ? '' : '请选择分类'
+
+  const amount = parseAmount(editBillForm.amountInput)
+  if (!editBillForm.amountInput.trim()) {
+    editFormErrors.amountInput = '请输入金额'
+  } else if (!Number.isFinite(amount) || amount <= 0) {
+    editFormErrors.amountInput = '金额必须大于 0'
+  } else {
+    editFormErrors.amountInput = ''
+  }
+
+  return !Object.values(editFormErrors).some(Boolean)
 }
 
 function findBillById(id: string) {
@@ -475,7 +407,6 @@ function fillEditBillForm(record: BillRecord) {
 
 function openEditBillSlideover(id: string) {
   const record = findBillById(id)
-
   if (!record) {
     systemToast.error('打开失败', '未找到要编辑的账单', 'bill-edit-open-error')
     return
@@ -493,7 +424,6 @@ function closeEditBillSlideover() {
 
 function openDeleteConfirm(id: string) {
   const record = findBillById(id)
-
   if (!record) {
     systemToast.error('删除失败', '未找到要删除的账单', 'bill-delete-open-error')
     return
@@ -507,24 +437,6 @@ function closeDeleteConfirm() {
   deleteConfirmOpen.value = false
   deletingBillId.value = ''
 }
-function validateEditBillForm() {
-  editFormErrors.date = editBillForm.date ? '' : '请选择日期'
-  editFormErrors.time = editBillForm.time ? '' : '请选择时间'
-  editFormErrors.type = editBillForm.type ? '' : '请选择类型'
-  editFormErrors.category = editBillForm.category ? '' : '请选择分类'
-
-  const amount = parseAmount(editBillForm.amountInput)
-  if (!editBillForm.amountInput.trim()) {
-    editFormErrors.amountInput = '请输入金额'
-  } else if (!Number.isFinite(amount) || amount <= 0) {
-    editFormErrors.amountInput = '金额必须大于 0'
-  } else {
-    editFormErrors.amountInput = ''
-  }
-
-  return !Object.values(editFormErrors).some(Boolean)
-}
-
 
 function addCategoryFromSearch(term?: string) {
   const name = (term ?? categorySearchTerm.value).trim()
@@ -540,10 +452,10 @@ function addCategoryFromSearch(term?: string) {
 }
 
 const normalizedCategorySearchTerm = computed(() => categorySearchTerm.value.trim())
+const normalizedEditCategorySearchTerm = computed(() => editCategorySearchTerm.value.trim())
 
 const categorySelectMenuItems = computed(() => {
   const keyword = normalizedCategorySearchTerm.value.toLowerCase()
-
   const filtered = keyword
     ? categoryOptions.value.filter(item => item.label.toLowerCase().includes(keyword))
     : categoryOptions.value
@@ -566,19 +478,8 @@ const categorySelectMenuItems = computed(() => {
   return filtered
 })
 
-watch(
-  () => billForm.category,
-  value => {
-    if (typeof value === 'string' && value.startsWith('__create__')) {
-      addCategoryFromSearch(value.replace('__create__', ''))
-    }
-  }
-)
-const normalizedEditCategorySearchTerm = computed(() => editCategorySearchTerm.value.trim())
-
 const editCategorySelectMenuItems = computed(() => {
   const keyword = normalizedEditCategorySearchTerm.value.toLowerCase()
-
   const filtered = keyword
     ? categoryOptions.value.filter(item => item.label.toLowerCase().includes(keyword))
     : categoryOptions.value
@@ -602,6 +503,15 @@ const editCategorySelectMenuItems = computed(() => {
 })
 
 watch(
+  () => billForm.category,
+  value => {
+    if (typeof value === 'string' && value.startsWith('__create__')) {
+      addCategoryFromSearch(value.replace('__create__', ''))
+    }
+  }
+)
+
+watch(
   () => editBillForm.category,
   value => {
     if (typeof value === 'string' && value.startsWith('__create__')) {
@@ -612,6 +522,7 @@ watch(
     }
   }
 )
+
 async function submitEditBill() {
   if (!validateEditBillForm()) {
     systemToast.error('保存失败', '请检查日期、时间、分类和金额后再试', 'bill-edit-validate-error')
@@ -622,7 +533,6 @@ async function submitEditBill() {
 
   try {
     const index = billRecords.value.findIndex(item => item.id === editingBillId.value)
-
     if (index < 0) {
       systemToast.error('保存失败', '未找到要编辑的账单', 'bill-edit-not-found')
       return
@@ -639,16 +549,7 @@ async function submitEditBill() {
       ...(editBillForm.remark.trim() ? { remark: editBillForm.remark.trim() } : { remark: undefined })
     }
 
-    /**
-     * TODO:
-     * 后续这里替换为真实编辑账单 API。
-     * 建议改为：
-     * 1. 调用编辑接口
-     * 2. 成功后重新拉取列表或按后端返回更新当前记录
-     */
-    await updateRecordApi({
-      ...updated
-    })
+    await updateRecordApi({ ...updated })
 
     billRecords.value.splice(index, 1, updated)
     mergeCategoriesFromBills([updated])
@@ -667,9 +568,7 @@ function mergeCategoriesFromBills(records: BillRecord[]) {
     new Set(records.map(item => item.category.trim()).filter(Boolean))
   )
 
-  if (!nextCategories.length) {
-    return
-  }
+  if (!nextCategories.length) return
 
   const existing = new Set(categoryOptions.value.map(item => item.value))
   const missing = nextCategories.filter(category => !existing.has(category))
@@ -726,13 +625,12 @@ function generateImportId() {
 
 function parseImportedBillType(value: string): BillType {
   const normalized = value.trim().toUpperCase()
-
   if (normalized === 'INCOME' || value.trim() === '收入') {
     return 'INCOME'
   }
-
   return 'EXPENSE'
 }
+
 function normalizeImportedRecordDate(value: string) {
   const raw = value.trim()
   if (!raw) return ''
@@ -761,22 +659,14 @@ function normalizeImportedRecordDate(value: string) {
 
   return `${paddedDate}T${hour}:${minute}:${second}`
 }
-/**
- * 当前仅支持最基础的 CSV 模板导入，且解析逻辑在前端本地完成。
- * 后续接入真实 API 后，建议改为：
- * 1. 前端只做基础校验
- * 2. 上传文件到后端
- * 3. 由后端解析、校验、入库并返回导入结果
- */
+
 function parseCsvTextToBills(text: string): BillRecord[] {
   const lines = text
     .split(/\r?\n/)
     .map(line => line.trim())
     .filter(Boolean)
 
-  if (lines.length <= 1) {
-    return []
-  }
+  if (lines.length <= 1) return []
 
   const rows = lines.slice(1)
 
@@ -841,7 +731,6 @@ function handleDragLeave(event: DragEvent) {
 function handleDrop(event: DragEvent) {
   event.preventDefault()
   dragOver.value = false
-
   const file = event.dataTransfer?.files?.[0] || null
   if (file) {
     selectedImportFile.value = file
@@ -855,7 +744,6 @@ async function submitImportBills() {
   }
 
   const fileName = selectedImportFile.value.name.toLowerCase()
-
   if (!fileName.endsWith('.csv')) {
     systemToast.warning('导入失败', '当前只支持 CSV 文件导入', 'bill-import-invalid-file-type')
     return
@@ -898,11 +786,6 @@ async function submitImportBills() {
 
 function downloadImportTemplate() {
   try {
-    /**
-     * TODO:
-     * 当前模板在前端静态生成。
-     * 后续如果导入字段规则变复杂，建议改为从后端获取统一模板文件。
-     */
     const template = [
       '日期时间,类型,分类,金额,备注',
       '2026-03-23 08:30,支出,餐饮,28,早餐',
@@ -919,7 +802,6 @@ function downloadImportTemplate() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-
     URL.revokeObjectURL(url)
 
     systemToast.success('下载成功', '模板已开始下载', 'bill-template-download-success')
@@ -927,35 +809,43 @@ function downloadImportTemplate() {
     systemToast.error('下载失败', error?.message || '请稍后重试', 'bill-template-download-error')
   }
 }
+
 function buildBillPageRequest() {
-  const request = {
+  return {
     pageNum: 1,
     pageSize: 500,
     type: filters.type !== 'ALL' ? filters.type : undefined,
     keyword: filters.keyword.trim() || undefined,
     dateMode: filters.dateMode !== 'NONE' ? filters.dateMode : undefined,
     quickDate: filters.dateMode === 'QUICK' ? filters.quickDate : undefined,
-    startDate: filters.dateMode === 'RANGE' && filters.customDateRange.start ? `${filters.customDateRange.start.toString()} 00:00:00` : undefined,
-    endDate: filters.dateMode === 'RANGE' && filters.customDateRange.end ? `${filters.customDateRange.end.toString()} 23:59:59` : undefined,
-    month: filters.dateMode === 'MONTH' && filters.month ? `${filters.month.year}-${pad2(filters.month.month)}` : undefined
+    startDate:
+      filters.dateMode === 'RANGE' && filters.customDateRange.start
+        ? `${filters.customDateRange.start.toString()} 00:00:00`
+        : undefined,
+    endDate:
+      filters.dateMode === 'RANGE' && filters.customDateRange.end
+        ? `${filters.customDateRange.end.toString()} 23:59:59`
+        : undefined,
+    month:
+      filters.dateMode === 'MONTH' && filters.month
+        ? `${filters.month.year}-${pad2(filters.month.month)}`
+        : undefined
   }
-
-  return request
 }
-/**
- * 获取账单列表
- */
+
 async function fetchBillRecords(showSuccess = false) {
   loading.value = true
 
   try {
     const request = buildBillPageRequest()
     const res: any = await pageBillsApi(request)
-
     const records = res?.data?.records || []
 
     billRecords.value = records
     mergeCategoriesFromBills(records)
+
+    const days = Array.from(new Set(records.map((item: BillRecord) => formatDay(item.recordDate))))
+    collapsedGroups.value = Object.fromEntries(days.map((day, index) => [day, index !== 0]))
 
     if (showSuccess) {
       systemToast.success('刷新成功', '账单列表已更新', 'bill-fetch-success')
@@ -1009,19 +899,14 @@ function buildSearchableText(item: BillRecord) {
 }
 
 function matchesKeyword(item: BillRecord, keyword: string) {
-  if (!keyword) {
-    return true
-  }
-
+  if (!keyword) return true
   return buildSearchableText(item).includes(keyword)
 }
 
 function matchesDateFilter(item: BillRecord) {
   const { dateMode, quickDate, customDateRange, month } = filters
 
-  if (dateMode === 'NONE') {
-    return true
-  }
+  if (dateMode === 'NONE') return true
 
   const recordDate = new Date(item.recordDate)
   const recordDay = formatDay(item.recordDate)
@@ -1057,14 +942,8 @@ function matchesDateFilter(item: BillRecord) {
   }
 
   if (dateMode === 'RANGE') {
-    if (customDateRange.start && recordDay < customDateRange.start.toString()) {
-      return false
-    }
-
-    if (customDateRange.end && recordDay > customDateRange.end.toString()) {
-      return false
-    }
-
+    if (customDateRange.start && recordDay < customDateRange.start.toString()) return false
+    if (customDateRange.end && recordDay > customDateRange.end.toString()) return false
     return true
   }
 
@@ -1090,28 +969,16 @@ function clearAllFilters() {
   filters.dateMode = 'NONE'
   filters.customDateRange = {}
   filters.month = undefined
-  rangePopoverOpen.value = false
-  monthPopoverOpen.value = false
-  systemToast.success('已清空筛选', '所有筛选条件已重置', 'bill-clear-filters-success')
-}
 
-function clearDateFilters() {
-  filters.quickDate = 'ALL'
-  filters.dateMode = 'NONE'
-  filters.customDateRange = {}
-  filters.month = undefined
-  rangePopoverOpen.value = false
-  monthPopoverOpen.value = false
-}
-
-function onRangeCalendarUpdate(value: any) {
-  filters.customDateRange = {
-    start: value?.start,
-    end: value?.end
+  rangeCalendarValue.value = {
+    start: undefined,
+    end: undefined
   }
-  filters.dateMode = value?.start || value?.end ? 'RANGE' : 'NONE'
-  filters.quickDate = 'ALL'
-  filters.month = undefined
+
+  rangePopoverOpen.value = false
+  monthPopoverOpen.value = false
+
+  systemToast.success('已清空筛选', '所有筛选条件已重置', 'bill-clear-filters-success')
 }
 
 function previousMonthPickerYear() {
@@ -1137,20 +1004,21 @@ function selectMonthFilter(value: CalendarDate) {
   monthPopoverOpen.value = false
 }
 
-const filterWatchSource = computed(() => ({
-  keyword: filters.keyword,
-  type: filters.type,
-  quickDate: filters.quickDate,
-  dateMode: filters.dateMode,
-  rangeStart: filters.customDateRange.start?.toString() || '',
-  rangeEnd: filters.customDateRange.end?.toString() || '',
-  month: filters.month ? `${filters.month.year}-${filters.month.month}` : ''
-}))
-
-watch(filterWatchSource, () => {
-  pagination.page = 1
-  expanded.value = {}
-}, { deep: true })
+watch(
+  () => ({
+    keyword: filters.keyword,
+    type: filters.type,
+    quickDate: filters.quickDate,
+    dateMode: filters.dateMode,
+    rangeStart: filters.customDateRange.start?.toString() || '',
+    rangeEnd: filters.customDateRange.end?.toString() || '',
+    month: filters.month ? `${filters.month.year}-${filters.month.month}` : ''
+  }),
+  () => {
+    pagination.page = 1
+  },
+  { deep: true }
+)
 
 const filteredLeafRows = computed<BillRecord[]>(() => {
   const keyword = filters.keyword.trim().toLowerCase()
@@ -1159,44 +1027,35 @@ const filteredLeafRows = computed<BillRecord[]>(() => {
     const matchType = filters.type === 'ALL' || item.type === filters.type
     const matchKeyword = matchesKeyword(item, keyword)
     const matchDate = matchesDateFilter(item)
-
     return matchType && matchKeyword && matchDate
   })
 })
 
-const groupedTableData = computed<BillGroupRow[]>(() => {
-  const groupedMap = new Map<string, BillLeafRow[]>()
+const groupedTableData = computed<BillGroup[]>(() => {
+  const groupedMap = new Map<string, BillRecord[]>()
 
   for (const item of filteredLeafRows.value) {
     const day = formatDay(item.recordDate)
-    const leaf: BillLeafRow = {
-      ...item,
-      kind: 'item'
-    }
-
     if (!groupedMap.has(day)) {
       groupedMap.set(day, [])
     }
-
-    groupedMap.get(day)?.push(leaf)
+    groupedMap.get(day)?.push(item)
   }
 
   return Array.from(groupedMap.entries())
     .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
-    .map(([day, children]) => {
-      const amount = children.reduce((sum, item) => {
+    .map(([day, items]) => {
+      const amount = items.reduce((sum, item) => {
         return item.type === 'EXPENSE' ? sum - item.amount : sum + item.amount
       }, 0)
 
       return {
-        id: `group-${day}`,
-        kind: 'group',
+        id: day,
         day,
-        label: day,
         weekday: formatWeekday(day),
+        count: items.length,
         amount,
-        count: children.length,
-        children: children.sort((a, b) => new Date(b.recordDate).getTime() - new Date(a.recordDate).getTime())
+        items: [...items].sort((a, b) => new Date(b.recordDate).getTime() - new Date(a.recordDate).getTime())
       }
     })
 })
@@ -1205,12 +1064,10 @@ const totalGroupCount = computed(() => groupedTableData.value.length)
 const totalPageCount = computed(() => Math.max(1, Math.ceil(totalGroupCount.value / pagination.pageSize)))
 
 watch(totalPageCount, value => {
-  if (pagination.page > value) {
-    pagination.page = value
-  }
+  if (pagination.page > value) pagination.page = value
 })
 
-const pagedTableData = computed<BillGroupRow[]>(() => {
+const pagedTableData = computed<BillGroup[]>(() => {
   const start = (pagination.page - 1) * pagination.pageSize
   const end = start + pagination.pageSize
   return groupedTableData.value.slice(start, end)
@@ -1233,303 +1090,13 @@ const summary = computed(() => {
   }
 })
 
-const columns = computed<TableColumn<BillTableRow>[]>(() => [
-  {
-    id: 'select',
-    header: ({ table }) =>
-      h(UCheckbox, {
-        modelValue: table.getIsAllPageRowsSelected(),
-        'onUpdate:modelValue': (value: boolean) => table.toggleAllPageRowsSelected(value),
-        'aria-label': '全选'
-      }),
-    cell: ({ row }) => {
-      const currentRow = row.original
-
-      if (!isBillLeafRow(currentRow)) {
-        return h('div')
-      }
-
-      return h(UCheckbox, {
-        modelValue: row.getIsSelected(),
-        'onUpdate:modelValue': (value: boolean) => row.toggleSelected(value),
-        'aria-label': '选择当前行'
-      })
-    },
-    enableSorting: false,
-    enableHiding: false,
-    meta: {
-      class: {
-        th: 'w-10',
-        td: 'w-10'
-      }
-    }
-  },
-  {
-    id: 'recordDate',
-    accessorKey: 'recordDate',
-    header: ({ column }) =>
-      h(
-        UButton,
-        {
-          color: 'neutral',
-          variant: 'ghost',
-          class: 'px-0 font-medium',
-          onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-        },
-        () => [
-          '日期',
-          h(UIcon, {
-            name:
-              column.getIsSorted() === 'asc'
-                ? 'i-lucide-arrow-up'
-                : column.getIsSorted() === 'desc'
-                  ? 'i-lucide-arrow-down'
-                  : 'i-lucide-arrow-up-down',
-            class: 'ml-1 size-4'
-          })
-        ]
-      ),
-    cell: ({ row }) => {
-      const currentRow = row.original
-
-      if (!isBillLeafRow(currentRow)) {
-        return h(
-          'button',
-          {
-            type: 'button',
-            class: UI_CLASSES.GROUP_DATE_BTN,
-            'data-action': DOM_ACTIONS.TOGGLE_GROUP_DATE,
-            'aria-expanded': row.getIsExpanded(),
-            onClick: () => row.toggleExpanded()
-          },
-          [
-            h('div', { class: UI_CLASSES.GROUP_DATE_CONTENT }, [
-              h('span', { class: UI_CLASSES.GROUP_DATE_ARROW_WRAP }, [
-                h(UIcon, {
-                  name: row.getIsExpanded() ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right',
-                  class: UI_CLASSES.GROUP_DATE_ARROW
-                })
-              ]),
-              h('span', { class: UI_CLASSES.GROUP_DATE_TEXT }, currentRow.label),
-              h('span', { class: UI_CLASSES.GROUP_DATE_SEP }, '｜'),
-              h('span', { class: UI_CLASSES.GROUP_DATE_WEEKDAY }, currentRow.weekday),
-              h('span', { class: UI_CLASSES.GROUP_DATE_SEP }, '｜'),
-              h('span', { class: UI_CLASSES.GROUP_DATE_COUNT }, `${currentRow.count} 笔`)
-            ])
-          ]
-        )
-      }
-
-      return h('span', { class: 'text-sm' }, formatDateTime(currentRow.recordDate))
-    },
-    footer: () => h('span', { class: 'font-medium' }, '合计'),
-    meta: {
-      class: {
-        th: 'min-w-[240px]',
-        td: 'min-w-[240px]'
-      }
-    }
-  },
-  {
-    id: 'type',
-    accessorKey: 'type',
-    header: '类型',
-    cell: ({ row }) => {
-      const currentRow = row.original
-
-      if (!isBillLeafRow(currentRow)) {
-        return h('span')
-      }
-
-      return h(
-        UBadge,
-        {
-          color: currentRow.type === 'INCOME' ? 'success' : 'error',
-          variant: 'soft'
-        },
-        () => getTypeLabel(currentRow.type)
-      )
-    },
-    footer: () =>
-      h('span', { class: 'text-xs text-[var(--mobe-text-soft)]' }, `${summary.value.count} 笔`)
-  },
-  {
-    id: 'category',
-    accessorKey: 'category',
-    header: '分类',
-    cell: ({ row }) => {
-      const currentRow = row.original
-
-      if (!isBillLeafRow(currentRow)) {
-        return h('span')
-      }
-
-      return h('span', {}, currentRow.category)
-    },
-    footer: () => h('span')
-  },
-  {
-    id: 'amount',
-    accessorKey: 'amount',
-    header: ({ column }) =>
-      h(
-        UButton,
-        {
-          color: 'neutral',
-          variant: 'ghost',
-          class: 'px-0 font-medium',
-          onClick: () => column.toggleSorting(column.getIsSorted() === 'asc')
-        },
-        () => [
-          '金额',
-          h(UIcon, {
-            name:
-              column.getIsSorted() === 'asc'
-                ? 'i-lucide-arrow-up'
-                : column.getIsSorted() === 'desc'
-                  ? 'i-lucide-arrow-down'
-                  : 'i-lucide-arrow-up-down',
-            class: 'ml-1 size-4'
-          })
-        ]
-      ),
-    cell: ({ row }) => {
-      const currentRow = row.original
-
-      if (!isBillLeafRow(currentRow)) {
-        return h(
-          'span',
-          {
-            class: currentRow.amount >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-600'
-          },
-          formatCurrency(currentRow.amount)
-        )
-      }
-
-      const signedAmount = currentRow.type === 'EXPENSE' ? -currentRow.amount : currentRow.amount
-
-      return h(
-        'span',
-        {
-          class: signedAmount >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-600'
-        },
-        formatCurrency(signedAmount)
-      )
-    },
-    footer: () =>
-      h(
-        'span',
-        {
-          class: summary.value.balance >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-600'
-        },
-        formatCurrency(summary.value.balance)
-      ),
-    meta: {
-      class: {
-        th: 'text-right',
-        td: 'text-right'
-      }
-    }
-  },
-  {
-    id: 'remark',
-    accessorKey: 'remark',
-    header: '备注',
-    cell: ({ row }) => {
-      const currentRow = row.original
-
-      if (!isBillLeafRow(currentRow)) {
-        return h('span')
-      }
-
-      return h('span', { class: 'text-sm text-[var(--mobe-text-soft)]' }, currentRow.remark || '-')
-    },
-    footer: () => h('span')
-  },
-  {
-    id: 'actions',
-    header: '操作',
-    enableSorting: false,
-    cell: ({ row }) => {
-      const currentRow = row.original
-
-      if (!isBillLeafRow(currentRow)) {
-        return h('span')
-      }
-
-      return h('div', { class: 'flex justify-end gap-2' }, [
-        h(
-          UButton,
-          {
-            size: 'xs',
-            color: 'neutral',
-            variant: 'ghost',
-            onClick: () => openEditBillSlideover(currentRow.id)
-          },
-          () => '编辑'
-        ),
-        h(
-          UButton,
-          {
-            size: 'xs',
-            color: 'error',
-            variant: 'ghost',
-            onClick: () => openDeleteConfirm(currentRow.id)
-          },
-          () => '删除'
-        )
-      ])
-    },
-    footer: () =>
-      h(
-        'div',
-        {
-          class: 'text-right font-medium whitespace-nowrap'
-        },
-        [
-          h('span', { class: 'text-[var(--mobe-text)]' }, '收入 '),
-          h('span', { class: 'text-emerald-600' }, formatCurrency(summary.value.income)),
-          h('span', { class: 'text-[var(--mobe-text)]' }, ' / 支出 '),
-          h('span', { class: 'text-rose-600' }, formatCurrency(-summary.value.expense))
-        ]
-      ),
-    meta: {
-      class: {
-        th: 'text-right w-[220px]',
-        td: 'text-right w-[220px]'
-      }
-    }
+function toggleGroup(day: string) {
+  collapsedGroups.value = {
+    ...collapsedGroups.value,
+    [day]: !collapsedGroups.value[day]
   }
-])
+}
 
-const visibleColumnMenuItems = computed(() => {
-  return columns.value
-    .filter(column => !['select', 'actions'].includes(column.id || ''))
-    .map(column => ({
-      label:
-        typeof column.header === 'string'
-          ? column.header
-          : column.id === 'recordDate'
-            ? '日期'
-            : column.id === 'type'
-              ? '类型'
-              : column.id === 'category'
-                ? '分类'
-                : column.id === 'amount'
-                  ? '金额'
-                  : column.id === 'remark'
-                    ? '备注'
-                    : column.id || '',
-      type: 'checkbox' as const,
-      checked: columnVisibility.value[column.id || ''] !== false,
-      onUpdateChecked(checked: boolean) {
-        columnVisibility.value = {
-          ...columnVisibility.value,
-          [column.id || '']: checked
-        }
-      }
-    }))
-})
 async function confirmDeleteBill() {
   deletingBill.value = true
 
@@ -1559,43 +1126,50 @@ async function confirmDeleteBill() {
 onMounted(async () => {
   resetBillForm()
   await fetchBillRecords()
-  expanded.value = {}
 })
 </script>
-
 <template>
   <div class="page-shell">
-    <div class="page-header">
-<div class="page-header__left page-header__left--hero">
-  <div class="page-header__eyebrow">
-    Finance
-  </div>
+    <div class="bills-workspace">
+      <div class="bills-workspace__title-wrap">
+        <div class="bills-workspace__eyebrow">
+          Finance
+        </div>
+        <div class="bills-workspace__title-row">
+          <h1 class="bills-workspace__title">
+            账单
+          </h1>
+          <span class="bills-workspace__desc">当知足凌驾于欲望之上，幸福将贯穿一生。</span>
+        </div>
+      </div>
 
-  <div class="page-header__title-row">
-    <h1 class="page-header__title">
-      账单
-    </h1>
-  </div>
+      <div class="bills-workspace__actions">
+        <UInput
+  v-model="filters.keyword"
+  icon="i-lucide-search"
+  placeholder="搜索分类、金额、日期、备注"
+  class="checklist-toolbar__search"
+/>
 
-  <p class="page-header__desc">
-    当知足凌驾于欲望之上，幸福将贯穿一生。
-  </p>
-
-  <div class="page-header__meta">
-    <span class="page-header__meta-tag">收支记录</span>
-    <span class="page-header__meta-tag">日期分组</span>
-    <span class="page-header__meta-tag">支持导入</span>
-  </div>
-</div>
-
-      <div class="page-header__right">
         <UButton color="neutral" variant="soft" icon="i-lucide-refresh-cw" @click="fetchBillRecords(true)">
           刷新
         </UButton>
 
-        <UButton color="neutral" variant="soft" icon="i-lucide-upload" @click="openImportOverlay">
+        <UButton color="neutral" variant="soft" icon="i-lucide-upload"  @click="openImportOverlay">
           导入
         </UButton>
+
+        <div class="bill-filter-trigger-wrap">
+          <UButton color="neutral" :variant="hasActiveFilters ? 'soft' : 'outline'" icon="i-lucide-sliders-horizontal"
+           @click="filterPanelOpen = true">
+            {{ hasActiveFilters ? `筛选(${activeFilterCount})` : '筛选' }}
+          </UButton>
+
+          <button v-if="hasActiveFilters" type="button" class="bill-filter-trigger-wrap__clear" aria-label="清空筛选"
+            @click.stop="clearAllFilters">
+            <UIcon name="i-lucide-x" class="size-3.5" />
+          </button>
+        </div>
 
         <UButton icon="i-lucide-plus" @click="openCreateBillSlideover">
           新增账单
@@ -1603,244 +1177,225 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="page-toolbar page-toolbar--main">
-      <div class="page-toolbar__left page-toolbar__left--grow">
-        <UInput v-model="filters.keyword" placeholder="模糊搜索类型、分类、金额、日期、备注" icon="i-lucide-search"
-          class="toolbar-search toolbar-search--wide" />
-
-        <USelect v-model="filters.type" :items="typeOptions" class="toolbar-select" />
+    <div class="bills-main-panel page-section">
+      <div class="bills-summary-bar">
+        <div class="bills-summary-item">
+          <span class="bills-summary-item__label">收入</span>
+          <span class="bills-summary-item__value bills-summary-item__value--income">
+            {{ formatCurrency(summary.income) }}
+          </span>
+        </div>
+        <div class="bills-summary-item">
+          <span class="bills-summary-item__label">支出</span>
+          <span class="bills-summary-item__value bills-summary-item__value--expense">
+            {{ formatCurrency(-summary.expense) }}
+          </span>
+        </div>
+        <div class="bills-summary-item">
+          <span class="bills-summary-item__label">结余</span>
+          <span class="bills-summary-item__value"
+            :class="summary.balance >= 0 ? 'bills-summary-item__value--income' : 'bills-summary-item__value--expense'">
+            {{ formatCurrency(summary.balance) }}
+          </span>
+        </div>
+        <div class="bills-summary-item">
+          <span class="bills-summary-item__label">记录数</span>
+          <span class="bills-summary-item__value">{{ summary.count }}</span>
+        </div>
       </div>
 
-      <div class="page-toolbar__right page-toolbar__right--wrap">
-        <div class="filter-quick-actions">
-          <UButton v-for="option in quickDateOptions" :key="option.value"
-            :color="filters.dateMode === 'QUICK' && filters.quickDate === option.value ? 'primary' : 'neutral'"
-            :variant="filters.dateMode === 'QUICK' && filters.quickDate === option.value ? 'solid' : 'soft'" size="sm"
-            @click="selectQuickDate(option.value)">
-            {{ option.label }}
-          </UButton>
+      <div v-if="loading" class="bill-loading">
+        <div class="bill-loading__ring" />
+        <div class="bill-loading__text">
+          正在加载账单
+        </div>
+      </div>
+
+      <template v-else>
+        <div v-if="!pagedTableData.length" class="bill-empty">
+          <div class="bill-empty__title">
+            暂无账单
+          </div>
+          <div class="bill-empty__desc">
+            当前筛选条件下没有匹配结果，试试调整筛选或新增一条账单。
+          </div>
         </div>
 
-        <UPopover v-model:open="rangePopoverOpen">
-          <UButton color="neutral" variant="outline" class="toolbar-date-trigger toolbar-date-trigger--range">
-            <span class="toolbar-date-trigger__text">{{ formatRangeSummary(filters.customDateRange) }}</span>
-            <UIcon name="i-lucide-calendar" class="size-4" />
-          </UButton>
-
-          <template #content>
-            <div class="toolbar-range-popover">
-              <UCalendar v-model="rangeCalendarValue" range :number-of-months="2" :month-controls="true"
-                :year-controls="true" />
+        <template v-else>
+          <div class="bill-grid-shell">
+            <div class="bill-grid-head">
+              <div class="bill-col bill-col--time">时间</div>
+              <div class="bill-col bill-col--type">类型</div>
+              <div class="bill-col bill-col--category">分类</div>
+              <div class="bill-col bill-col--amount">金额</div>
+              <div v-if="columnVisibility.remark" class="bill-col bill-col--remark">备注</div>
+              <div class="bill-col bill-col--operations">操作</div>
             </div>
-          </template>
-        </UPopover>
 
-        <UPopover v-model:open="monthPopoverOpen">
-          <UButton color="neutral" variant="outline" class="toolbar-date-trigger toolbar-date-trigger--month">
-            <span class="toolbar-date-trigger__text">{{ formatMonthSummary(filters.month) }}</span>
-            <UIcon name="i-lucide-calendar-range" class="size-4" />
-          </UButton>
+            <div class="bill-groups">
+              <section v-for="group in pagedTableData" :key="group.id" class="bill-group">
+                <button type="button" class="bill-group__header" @click="toggleGroup(group.day)">
+                  <div class="bill-group__left">
+                    <UIcon name="i-lucide-chevron-down" class="size-4 bill-group__arrow"
+                      :class="{ 'bill-group__arrow--collapsed': collapsedGroups[group.day] }" />
+                    <span class="bill-group__title">{{ group.day }}</span>
+                    <span class="bill-group__weekday">{{ group.weekday }}</span>
+                    <span class="bill-group__count">{{ group.count }} 笔</span>
+                  </div>
 
-          <template #content>
-            <div class="month-picker-popover">
-              <div class="month-picker-popover__header">
-                <UButton color="neutral" variant="ghost" icon="i-lucide-chevron-left"
-                  @click="previousMonthPickerYear" />
-                <span class="month-picker-popover__year">{{ monthPickerYear }}</span>
-                <UButton color="neutral" variant="ghost" icon="i-lucide-chevron-right" @click="nextMonthPickerYear" />
-              </div>
-
-              <div class="month-picker-grid">
-                <button v-for="item in monthPickerItems" :key="`${item.value.year}-${item.value.month}`" type="button"
-                  class="month-picker-grid__item" :class="{
-                    'month-picker-grid__item--active':
-                      filters.month &&
-                      filters.month.year === item.value.year &&
-                      filters.month.month === item.value.month
-                  }" @click="selectMonthFilter(item.value)">
-                  {{ item.label }}
+                  <div class="bill-group__amount"
+                    :class="group.amount >= 0 ? 'bill-group__amount--income' : 'bill-group__amount--expense'">
+                    {{ formatCurrency(group.amount) }}
+                  </div>
                 </button>
-              </div>
+
+                <div v-show="!collapsedGroups[group.day]" class="bill-group__body">
+                  <div v-for="item in group.items" :key="item.id" class="bill-row">
+                    <div class="bill-col bill-col--time">
+                      <div class="bill-time-wrap">
+                        <div class="bill-time-wrap__main">{{ formatTimeOnly(item.recordDate) }}</div>
+                        <div class="bill-time-wrap__sub">{{ formatDateTime(item.recordDate) }}</div>
+                      </div>
+                    </div>
+
+                    <div class="bill-col bill-col--type">
+                      <span :class="getTypeBadgeClass(item.type)">
+                        {{ getTypeLabel(item.type) }}
+                      </span>
+                    </div>
+
+                    <div class="bill-col bill-col--category">
+                      <span class="bill-meta-text">{{ item.category }}</span>
+                    </div>
+
+                    <div class="bill-col bill-col--amount">
+                      <span class="bill-amount-text"
+                        :class="item.type === 'INCOME' ? 'bill-amount-text--income' : 'bill-amount-text--expense'">
+                        {{ formatCurrency(item.type === 'EXPENSE' ? -item.amount : item.amount) }}
+                      </span>
+                    </div>
+
+                    <div v-if="columnVisibility.remark" class="bill-col bill-col--remark">
+                      <span class="bill-meta-text">{{ item.remark || '—' }}</span>
+                    </div>
+
+                    <div class="bill-col bill-col--operations">
+                      <div class="bill-op-group">
+                        <button type="button" class="bill-op-btn" @click="openEditBillSlideover(item.id)">
+                          编辑
+                        </button>
+                        <button type="button" class="bill-op-btn bill-op-btn--danger"
+                          @click="openDeleteConfirm(item.id)">
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
-          </template>
-        </UPopover>
-
-        <UButton color="neutral" variant="ghost" icon="i-lucide-eraser" @click="clearAllFilters">
-          清空筛选
-        </UButton>
-
-        <UDropdownMenu :items="[visibleColumnMenuItems]">
-          <UButton color="neutral" variant="soft" icon="i-lucide-columns-3">
-            显示列
-          </UButton>
-        </UDropdownMenu>
-      </div>
-    </div>
-
-    <div class="mobe-stats">
-      <div class="mobe-stat">
-        <span class="mobe-stat__label">收入</span>
-        <span class="mobe-stat__value mobe-stat__value--success">{{ formatCurrency(summary.income) }}</span>
-      </div>
-      <div class="mobe-stat">
-        <span class="mobe-stat__label">支出</span>
-        <span class="mobe-stat__value mobe-stat__value--danger">{{ formatCurrency(-summary.expense) }}</span>
-      </div>
-      <div class="mobe-stat">
-        <span class="mobe-stat__label">结余</span>
-        <span class="mobe-stat__value"
-          :class="summary.balance >= 0 ? 'mobe-stat__value--success' : 'mobe-stat__value--danger'">
-          {{ formatCurrency(summary.balance) }}
-        </span>
-      </div>
-      <div class="mobe-stat">
-        <span class="mobe-stat__label">记录数</span>
-        <span class="mobe-stat__value">{{ summary.count }}</span>
-      </div>
-    </div>
-
-    <div class="page-section bills-table-wrap">
-      <UTable v-model:expanded="expanded" v-model:row-selection="rowSelection" v-model:sorting="sorting"
-        v-model:column-visibility="columnVisibility" :data="pagedTableData" :columns="columns"
-        :get-sub-rows="(row) => row.kind === 'group' ? row.children : undefined" :loading="loading"
-        loading-color="primary" loading-animation="carousel" sticky class="bills-table" :ui="{
-          base: 'border-separate border-spacing-0',
-          thead: 'bg-[var(--mobe-table-surface-soft)]',
-          tbody: '[&>tr]:last:[&>td]:border-b-0',
-          tr: 'group',
-          th: 'bg-[var(--mobe-table-surface-soft)]',
-          td: 'align-middle empty:p-0 group-has-[td:not(:empty)]:border-b border-[var(--mobe-divider)]'
-        }" />
+          </div>
+        </template>
+      </template>
     </div>
 
     <div class="bills-pagination-bar">
       <div class="bills-pagination-bar__meta">
         共 {{ totalGroupCount }} 个日期分组，当前第 {{ pagination.page }} / {{ totalPageCount }} 页
       </div>
-
       <UPagination v-model:page="pagination.page" :items-per-page="pagination.pageSize" :total="totalGroupCount" />
     </div>
 
-    <USlideover v-model:open="createBillOpen" side="right" :ui="{
-      content: 'w-full max-w-[520px]'
-    }">
+    <USlideover v-model:open="createBillOpen" side="right" :ui="{ content: 'w-full max-w-[520px]' }">
       <template #content>
         <div class="bill-create-panel">
           <div class="bill-create-panel__header">
             <div>
-              <div class="bill-create-panel__eyebrow">
-                Finance
-              </div>
-              <h2 class="bill-create-panel__title">
-                新增账单
-              </h2>
+              <div class="bill-create-panel__eyebrow">Finance</div>
+              <h2 class="bill-create-panel__title">新增账单</h2>
               <p class="bill-create-panel__desc">
                 记录一笔实际发生的收入或支出，时间以你选择的日期和时刻为准。
               </p>
             </div>
-
             <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateBillSlideover" />
           </div>
 
           <div class="bill-create-panel__body">
             <div class="bill-form-grid">
               <div class="bill-form-field">
-                <label class="bill-form-field__label">日期</label>
+  <label class="bill-form-field__label">日期</label>
 
-                <UPopover v-model:open="datePickerOpen">
-                  <UButton color="neutral" variant="outline" size="lg" class="bill-picker-trigger">
-                    <span>{{ formatDateDisplay(billForm.date) }}</span>
-                    <UIcon name="i-lucide-calendar" class="size-4" />
-                  </UButton>
+  <UInputDate
+    ref="createDateInput"
+    v-model="billDateValue"
+    size="lg"
+    class="bill-native-control"
+    :format-options="{
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }"
+    locale="en-CA"
+  >
+    <template #trailing>
+      <UPopover
+        v-model:open="createDatePopoverOpen"
+        :reference="createDateInputRef?.inputsRef?.[3]?.$el"
+      >
+        <UButton
+          color="neutral"
+          variant="link"
+          size="sm"
+          icon="i-lucide-calendar"
+          aria-label="Select a date"
+          class="bill-date-trigger-btn"
+        />
 
-                  <template #content>
-                    <div class="bill-date-popover">
-                      <UCalendar v-model="calendarDateValue" :month-controls="true" :year-controls="true" />
-                    </div>
-                  </template>
-                </UPopover>
+        <template #content>
+          <UCalendar
+            v-model="billDateValue"
+            class="bill-date-calendar"
+            :month-controls="true"
+            :year-controls="true"
+            @update:model-value="createDatePopoverOpen = false"
+          />
+        </template>
+      </UPopover>
+    </template>
+  </UInputDate>
 
-                <div v-if="formErrors.date" class="bill-form-field__error">
-                  {{ formErrors.date }}
-                </div>
-              </div>
+  <div v-if="formErrors.date" class="bill-form-field__error">{{ formErrors.date }}</div>
+</div>
 
               <div class="bill-form-field">
                 <label class="bill-form-field__label">时间</label>
-
-                <UPopover v-model:open="timePickerOpen">
-                  <UButton color="neutral" variant="outline" size="lg" class="bill-picker-trigger">
-                    <span>{{ formatTimeDisplay(billForm.time) }}</span>
-                    <UIcon name="i-lucide-clock-3" class="size-4" />
-                  </UButton>
-
-                  <template #content>
-                    <div class="bill-time-popover">
-                      <div class="bill-time-columns">
-                        <div class="bill-time-column">
-                          <div class="bill-time-column__title">
-                            小时
-                          </div>
-                          <div ref="hourListRef" class="bill-time-list">
-                            <button v-for="hour in hours" :key="hour" :ref="(el) => setActiveHourItemRef(el, hour)"
-                              type="button" class="bill-time-item"
-                              :class="{ 'bill-time-item--active': selectedHour === hour }" @click="selectHour(hour)">
-                              {{ hour }}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div class="bill-time-column">
-                          <div class="bill-time-column__title">
-                            分钟
-                          </div>
-                          <div ref="minuteListRef" class="bill-time-list">
-                            <button v-for="minute in minutes" :key="minute"
-                              :ref="(el) => setActiveMinuteItemRef(el, minute)" type="button" class="bill-time-item"
-                              :class="{ 'bill-time-item--active': selectedMinute === minute }"
-                              @click="selectMinute(minute)">
-                              {{ minute }}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </template>
-                </UPopover>
-
-                <div v-if="formErrors.time" class="bill-form-field__error">
-                  {{ formErrors.time }}
-                </div>
+                <UInputTime v-model="billTimeValue" size="lg" class="bill-native-control" locale="en-GB" :hour-cycle="24"
+                  :format-options="{
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                  }" />
+                <div v-if="formErrors.time" class="bill-form-field__error">{{ formErrors.time }}</div>
               </div>
 
               <div class="bill-form-field">
                 <label class="bill-form-field__label">类型</label>
                 <USelect v-model="billForm.type" :items="billTypeOptions" size="lg" />
-                <div v-if="formErrors.type" class="bill-form-field__error">
-                  {{ formErrors.type }}
-                </div>
+                <div v-if="formErrors.type" class="bill-form-field__error">{{ formErrors.type }}</div>
               </div>
 
               <div class="bill-form-field">
                 <label class="bill-form-field__label">分类</label>
-
                 <USelectMenu v-model="billForm.category" v-model:search-term="categorySearchTerm"
-                  :items="categorySelectMenuItems" value-key="value" label-key="label" searchable size="lg"
+                  :items="categorySelectMenuItems" value-key="value" label-key="label" searchable 
                   placeholder="请选择或搜索分类">
                   <template #empty>
-                    <div class="bill-selectmenu-empty">
-                      没有匹配结果
-                    </div>
+                    <div class="bill-selectmenu-empty">没有匹配结果</div>
                   </template>
                 </USelectMenu>
 
-                <div class="bill-form-field__hint">
-                  搜索不存在的分类时，可直接回车添加。
-                </div>
-
-                <div v-if="formErrors.category" class="bill-form-field__error">
-                  {{ formErrors.category }}
-                </div>
+                <div class="bill-form-field__hint">搜索不存在的分类时，可直接回车添加。</div>
+                <div v-if="formErrors.category" class="bill-form-field__error">{{ formErrors.category }}</div>
               </div>
             </div>
 
@@ -1852,12 +1407,8 @@ onMounted(async () => {
                   class="bill-amount-input__control"
                   @update:model-value="billForm.amountInput = normalizeAmountInput(String($event || ''))" />
               </div>
-              <div class="bill-form-field__hint">
-                当前金额：{{ amountPreviewText }}
-              </div>
-              <div v-if="formErrors.amountInput" class="bill-form-field__error">
-                {{ formErrors.amountInput }}
-              </div>
+              <div class="bill-form-field__hint">当前金额：{{ amountPreviewText }}</div>
+              <div v-if="formErrors.amountInput" class="bill-form-field__error">{{ formErrors.amountInput }}</div>
             </div>
 
             <div class="bill-form-field">
@@ -1867,63 +1418,191 @@ onMounted(async () => {
           </div>
 
           <div class="bill-create-panel__footer">
-            <UButton color="neutral" variant="soft" @click="closeCreateBillSlideover">
-              取消
-            </UButton>
-
-            <UButton icon="i-lucide-save" :loading="creatingBill" @click="submitCreateBill">
-              保存
-            </UButton>
+            <UButton color="neutral" variant="soft" @click="closeCreateBillSlideover">取消</UButton>
+            <UButton icon="i-lucide-save" :loading="creatingBill" @click="submitCreateBill">保存</UButton>
           </div>
         </div>
       </template>
     </USlideover>
 
-    <USlideover v-model:open="editBillOpen" side="right" :ui="{
-      content: 'w-full max-w-[520px]'
-    }">
+    <USlideover v-model:open="filterPanelOpen" side="right" :ui="{ content: 'w-full max-w-[440px]' }">
       <template #content>
         <div class="bill-create-panel">
           <div class="bill-create-panel__header">
             <div>
-              <div class="bill-create-panel__eyebrow">
-                Finance
-              </div>
-              <h2 class="bill-create-panel__title">
-                编辑账单
-              </h2>
-              <p class="bill-create-panel__desc">
-                修改这笔账单的日期、时间、类型、分类、金额和备注。
-              </p>
+              <div class="bill-create-panel__eyebrow">Finance</div>
+              <h2 class="bill-create-panel__title">筛选账单</h2>
+              <p class="bill-create-panel__desc">选择条件后立即生效，关闭面板不会清空当前筛选。</p>
+            </div>
+            <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="filterPanelOpen = false" />
+          </div>
+
+          <div class="bill-create-panel__body">
+            <div class="bill-form-field">
+              <label class="bill-form-field__label">关键词</label>
+              <UInput v-model="filters.keyword" placeholder="模糊搜索类型、分类、金额、日期、备注" icon="i-lucide-search" />
             </div>
 
+            <div class="bill-form-field">
+              <label class="bill-form-field__label">类型</label>
+              <USelect v-model="filters.type" :items="typeOptions" />
+            </div>
+
+            <div class="bill-form-field">
+              <label class="bill-form-field__label">快捷时间</label>
+              <div class="filter-quick-actions filter-quick-actions--panel">
+                <UButton v-for="option in quickDateOptions" :key="option.value"
+                  :color="filters.dateMode === 'QUICK' && filters.quickDate === option.value ? 'primary' : 'neutral'"
+                  :variant="filters.dateMode === 'QUICK' && filters.quickDate === option.value ? 'solid' : 'soft'"
+                  size="sm" @click="selectQuickDate(option.value)">
+                  {{ option.label }}
+                </UButton>
+              </div>
+            </div>
+
+            <div class="bill-form-field">
+              <label class="bill-form-field__label">自定义时间</label>
+              <UPopover v-model:open="rangePopoverOpen">
+                <UButton color="neutral" variant="outline"
+                  class="toolbar-date-trigger toolbar-date-trigger--range toolbar-date-trigger--panel">
+                  <span class="toolbar-date-trigger__text">{{ formatRangeSummary(filters.customDateRange) }}</span>
+                  <UIcon name="i-lucide-calendar" class="size-4" />
+                </UButton>
+                <template #content>
+                  <div class="toolbar-range-popover">
+                    <UCalendar v-model="rangeCalendarValue" range :number-of-months="2" :month-controls="true"
+                      :year-controls="true" />
+                  </div>
+                </template>
+              </UPopover>
+            </div>
+
+            <div class="bill-form-field">
+              <label class="bill-form-field__label">按月份</label>
+              <UPopover v-model:open="monthPopoverOpen">
+                <UButton color="neutral" variant="outline"
+                  class="toolbar-date-trigger toolbar-date-trigger--month toolbar-date-trigger--panel">
+                  <span class="toolbar-date-trigger__text">{{ formatMonthSummary(filters.month) }}</span>
+                  <UIcon name="i-lucide-calendar-range" class="size-4" />
+                </UButton>
+                <template #content>
+                  <div class="month-picker-popover">
+                    <div class="month-picker-popover__header">
+                      <UButton color="neutral" variant="ghost" icon="i-lucide-chevron-left"
+                        @click="previousMonthPickerYear" />
+                      <span class="month-picker-popover__year">{{ monthPickerYear }}</span>
+                      <UButton color="neutral" variant="ghost" icon="i-lucide-chevron-right"
+                        @click="nextMonthPickerYear" />
+                    </div>
+
+                    <div class="month-picker-grid">
+                      <button v-for="item in monthPickerItems" :key="`${item.value.year}-${item.value.month}`"
+                        type="button" class="month-picker-grid__item" :class="{
+                          'month-picker-grid__item--active':
+                            filters.month &&
+                            filters.month.year === item.value.year &&
+                            filters.month.month === item.value.month
+                        }" @click="selectMonthFilter(item.value)">
+                        {{ item.label }}
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </UPopover>
+            </div>
+
+            <div class="bill-form-field">
+              <label class="bill-form-field__label">显示列</label>
+              <div class="bill-column-list">
+                <label v-for="item in visibleColumnOptions" :key="item.key" class="bill-column-list__item">
+                  <input v-model="columnVisibility[item.key]" type="checkbox">
+                  <span>{{ item.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="bill-create-panel__footer">
+            <UButton color="neutral" variant="soft" @click="filterPanelOpen = false">关闭</UButton>
+          </div>
+        </div>
+      </template>
+    </USlideover>
+
+    <USlideover v-model:open="editBillOpen" side="right" :ui="{ content: 'w-full max-w-[520px]' }">
+      <template #content>
+        <div class="bill-create-panel">
+          <div class="bill-create-panel__header">
+            <div>
+              <div class="bill-create-panel__eyebrow">Finance</div>
+              <h2 class="bill-create-panel__title">编辑账单</h2>
+              <p class="bill-create-panel__desc">修改这笔账单的日期、时间、类型、分类、金额和备注。</p>
+            </div>
             <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeEditBillSlideover" />
           </div>
 
           <div class="bill-create-panel__body">
             <div class="bill-form-grid">
               <div class="bill-form-field">
-                <label class="bill-form-field__label">日期</label>
-                <UInput v-model="editBillForm.date" type="date" size="lg" />
-                <div v-if="editFormErrors.date" class="bill-form-field__error">
-                  {{ editFormErrors.date }}
-                </div>
-              </div>
+  <label class="bill-form-field__label">日期</label>
+
+  <UInputDate
+    ref="editDateInput"
+    v-model="editBillDateValue"
+    size="lg"
+    class="bill-native-control"
+    :format-options="{
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }"
+    locale="en-CA"
+  >
+    <template #trailing>
+      <UPopover
+        v-model:open="editDatePopoverOpen"
+        :reference="editDateInputRef?.inputsRef?.[3]?.$el"
+      >
+        <UButton
+          color="neutral"
+          variant="link"
+          size="sm"
+          icon="i-lucide-calendar"
+          aria-label="Select a date"
+          class="bill-date-trigger-btn"
+        />
+
+        <template #content>
+          <UCalendar
+            v-model="editBillDateValue"
+            class="bill-date-calendar"
+            :month-controls="true"
+            :year-controls="true"
+            @update:model-value="editDatePopoverOpen = false"
+          />
+        </template>
+      </UPopover>
+    </template>
+  </UInputDate>
+
+  <div v-if="editFormErrors.date" class="bill-form-field__error">{{ editFormErrors.date }}</div>
+</div>
 
               <div class="bill-form-field">
                 <label class="bill-form-field__label">时间</label>
-                <UInput v-model="editBillForm.time" type="time" size="lg" />
-                <div v-if="editFormErrors.time" class="bill-form-field__error">
-                  {{ editFormErrors.time }}
-                </div>
+                <UInputTime v-model="editBillTimeValue" size="lg" class="bill-native-control" locale="en-GB"
+                  :hour-cycle="24" :format-options="{
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                  }" />
+                <div v-if="editFormErrors.time" class="bill-form-field__error">{{ editFormErrors.time }}</div>
               </div>
 
               <div class="bill-form-field">
                 <label class="bill-form-field__label">类型</label>
                 <USelect v-model="editBillForm.type" :items="billTypeOptions" size="lg" />
-                <div v-if="editFormErrors.type" class="bill-form-field__error">
-                  {{ editFormErrors.type }}
-                </div>
+                <div v-if="editFormErrors.type" class="bill-form-field__error">{{ editFormErrors.type }}</div>
               </div>
 
               <div class="bill-form-field">
@@ -1932,17 +1611,12 @@ onMounted(async () => {
                   :items="editCategorySelectMenuItems" value-key="value" label-key="label" searchable size="lg"
                   placeholder="请选择或搜索分类">
                   <template #empty>
-                    <div class="bill-selectmenu-empty">
-                      没有匹配结果
-                    </div>
+                    <div class="bill-selectmenu-empty">没有匹配结果</div>
                   </template>
                 </USelectMenu>
-                <div class="bill-form-field__hint">
-                  搜索不存在的分类时，可直接回车添加。
-                </div>
-                <div v-if="editFormErrors.category" class="bill-form-field__error">
-                  {{ editFormErrors.category }}
-                </div>
+
+                <div class="bill-form-field__hint">搜索不存在的分类时，可直接回车添加。</div>
+                <div v-if="editFormErrors.category" class="bill-form-field__error">{{ editFormErrors.category }}</div>
               </div>
             </div>
 
@@ -1954,8 +1628,7 @@ onMounted(async () => {
                   class="bill-amount-input__control"
                   @update:model-value="editBillForm.amountInput = normalizeAmountInput(String($event || ''))" />
               </div>
-              <div v-if="editFormErrors.amountInput" class="bill-form-field__error">
-                {{ editFormErrors.amountInput }}
+              <div v-if="editFormErrors.amountInput" class="bill-form-field__error">{{ editFormErrors.amountInput }}
               </div>
             </div>
 
@@ -1966,13 +1639,8 @@ onMounted(async () => {
           </div>
 
           <div class="bill-create-panel__footer">
-            <UButton color="neutral" variant="soft" @click="closeEditBillSlideover">
-              取消
-            </UButton>
-
-            <UButton icon="i-lucide-save" :loading="editingBill" @click="submitEditBill">
-              保存修改
-            </UButton>
+            <UButton color="neutral" variant="soft" @click="closeEditBillSlideover">取消</UButton>
+            <UButton icon="i-lucide-save" :loading="editingBill" @click="submitEditBill">保存修改</UButton>
           </div>
         </div>
       </template>
@@ -1980,24 +1648,15 @@ onMounted(async () => {
 
     <input ref="fileInputRef" type="file" accept=".csv" class="bill-import-input" @change="handleImportFileSelect">
 
-    <UModal v-model:open="importOverlayOpen" :ui="{
-      content: 'max-w-[560px]'
-    }">
+    <UModal v-model:open="importOverlayOpen" :ui="{ content: 'max-w-[560px]' }">
       <template #content>
         <div class="bill-import-modal">
           <div class="bill-import-modal__header">
             <div>
-              <div class="bill-import-modal__eyebrow">
-                Finance
-              </div>
-              <h2 class="bill-import-modal__title">
-                导入账单
-              </h2>
-              <p class="bill-import-modal__desc">
-                支持拖拽或选择 CSV 文件导入账单数据，也可以先下载模板填写后再导入。
-              </p>
+              <div class="bill-import-modal__eyebrow">Finance</div>
+              <h2 class="bill-import-modal__title">导入账单</h2>
+              <p class="bill-import-modal__desc">支持拖拽或选择 CSV 文件导入账单数据，也可以先下载模板填写后再导入。</p>
             </div>
-
             <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeImportOverlay" />
           </div>
 
@@ -2005,12 +1664,8 @@ onMounted(async () => {
             <div class="bill-import-dropzone" :class="{ 'bill-import-dropzone--active': dragOver }"
               @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop" @click="openImportFilePicker">
               <UIcon name="i-lucide-file-up" class="bill-import-dropzone__icon" />
-              <div class="bill-import-dropzone__title">
-                拖动文件到这里，或点击选择文件
-              </div>
-              <div class="bill-import-dropzone__desc">
-                当前仅支持 .csv 文件
-              </div>
+              <div class="bill-import-dropzone__title">拖动文件到这里，或点击选择文件</div>
+              <div class="bill-import-dropzone__desc">当前仅支持 .csv 文件</div>
 
               <div v-if="selectedImportFile" class="bill-import-dropzone__file">
                 已选择：{{ selectedImportFile.name }}
@@ -2018,10 +1673,7 @@ onMounted(async () => {
             </div>
 
             <div class="bill-import-template">
-              <div class="bill-import-template__text">
-                没有模板？先下载模板再填写会更稳。
-              </div>
-
+              <div class="bill-import-template__text">没有模板？先下载模板再填写会更稳。</div>
               <UButton color="neutral" variant="soft" icon="i-lucide-download" @click="downloadImportTemplate">
                 下载模板
               </UButton>
@@ -2029,43 +1681,27 @@ onMounted(async () => {
           </div>
 
           <div class="bill-import-modal__footer">
-            <UButton color="neutral" variant="soft" @click="closeImportOverlay">
-              取消
-            </UButton>
-
-            <UButton icon="i-lucide-upload" :loading="importingBills" @click="submitImportBills">
-              开始导入
-            </UButton>
+            <UButton color="neutral" variant="soft" @click="closeImportOverlay">取消</UButton>
+            <UButton icon="i-lucide-upload" :loading="importingBills" @click="submitImportBills">开始导入</UButton>
           </div>
         </div>
       </template>
     </UModal>
-    <UModal v-model:open="deleteConfirmOpen" :ui="{
-      content: 'max-w-[420px]'
-    }">
+
+    <UModal v-model:open="deleteConfirmOpen" :ui="{ content: 'max-w-[420px]' }">
       <template #content>
         <div class="bill-import-modal">
           <div class="bill-import-modal__header">
             <div>
-              <div class="bill-import-modal__eyebrow">
-                Finance
-              </div>
-              <h2 class="bill-import-modal__title">
-                删除账单
-              </h2>
-              <p class="bill-import-modal__desc">
-                删除后将无法恢复，确认删除这笔账单吗？
-              </p>
+              <div class="bill-import-modal__eyebrow">Finance</div>
+              <h2 class="bill-import-modal__title">删除账单</h2>
+              <p class="bill-import-modal__desc">删除后将无法恢复，确认删除这笔账单吗？</p>
             </div>
-
             <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeDeleteConfirm" />
           </div>
 
           <div class="bill-import-modal__footer">
-            <UButton color="neutral" variant="soft" @click="closeDeleteConfirm">
-              取消
-            </UButton>
-
+            <UButton color="neutral" variant="soft" @click="closeDeleteConfirm">取消</UButton>
             <UButton color="error" icon="i-lucide-trash-2" :loading="deletingBill" @click="confirmDeleteBill">
               确认删除
             </UButton>
@@ -2081,136 +1717,346 @@ onMounted(async () => {
   display: none;
 }
 
-.toolbar-search {
-  width: 260px;
+.bills-workspace {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
 }
 
-.toolbar-search--wide {
+.bills-workspace__title-wrap {
+  min-width: 0;
+}
+
+.bills-workspace__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.checklist-toolbar__search {
   width: 320px;
 }
 
-.toolbar-select {
-  width: 140px;
+.bills-workspace__eyebrow {
+  font-size: 12px;
+  color: var(--mobe-text-soft);
+  margin-bottom: 4px;
 }
 
-.page-toolbar--main {
+.bills-workspace__title-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: nowrap;
-  width: 100%;
-  overflow-x: auto;
-  padding-bottom: 8px;
-}
-
-.page-toolbar__left--grow {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
+  align-items: baseline;
   gap: 12px;
-  align-items: center;
+  flex-wrap: wrap;
 }
 
-.page-toolbar__right--wrap {
-  display: flex;
-  flex: 0 0 auto;
-  min-width: 0;
-  flex-wrap: nowrap;
-  gap: 10px;
-  justify-content: flex-end;
-  align-items: center;
+.bills-workspace__title {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--mobe-text);
 }
 
-.filter-quick-actions {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: nowrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.toolbar-date-trigger {
-  min-width: 190px;
-  justify-content: space-between;
-  border-radius: 10px;
-}
-
-.toolbar-date-trigger--range {
-  min-width: 260px;
-}
-
-.toolbar-date-trigger--month {
-  min-width: 160px;
-}
-
-.toolbar-date-trigger__text {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.bills-workspace__desc {
+  font-size: 13px;
+  color: var(--mobe-text-soft);
   white-space: nowrap;
 }
 
-.toolbar-range-popover {
-  padding: 8px;
+
+.bill-filter-trigger-wrap {
+  position: relative;
+  display: inline-flex;
 }
 
-.month-picker-popover {
-  width: 280px;
-  padding: 12px;
-}
-
-.month-picker-popover__header {
-  display: flex;
+.bill-filter-trigger-wrap__clear {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--mobe-border-soft);
+  border-radius: 999px;
+  background: var(--mobe-surface, #fff);
+  color: var(--mobe-text-soft);
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  transition: all 0.18s ease;
+  z-index: 2;
 }
 
-.month-picker-popover__year {
+.bill-filter-trigger-wrap__clear:hover {
+  color: var(--mobe-text);
+  border-color: var(--mobe-border);
+  background: var(--mobe-surface-soft, #f7f8fa);
+}
+
+.bills-main-panel {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--mobe-border-soft) 72%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mobe-surface, #fff) 96%, var(--mobe-surface-soft, #f7f8fa));
+}
+
+.bills-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--mobe-divider) 64%, transparent);
+}
+
+.bills-summary-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bills-summary-item__label {
+  font-size: 13px;
+  color: var(--mobe-text-soft);
+}
+
+.bills-summary-item__value {
   font-size: 14px;
   font-weight: 700;
   color: var(--mobe-text);
 }
 
-.month-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+.bills-summary-item__value--income {
+  color: #059669;
 }
 
-.month-picker-grid__item {
-  height: 38px;
-  border: 1px solid var(--mobe-border-soft);
-  border-radius: 10px;
-  background: var(--mobe-surface, #fff);
+.bills-summary-item__value--expense {
+  color: #dc2626;
+}
+
+.bill-loading,
+.bill-empty {
+  display: flex;
+  min-height: 320px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+}
+
+.bill-loading__ring {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 2px solid rgba(145, 132, 126, 0.16);
+  border-top-color: #8c8791;
+  animation: bill-spin 0.85s linear infinite;
+}
+
+@keyframes bill-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bill-loading__text,
+.bill-empty__desc {
+  font-size: 13px;
+  color: var(--mobe-text-soft);
+}
+
+.bill-empty__title {
+  font-size: 18px;
+  font-weight: 700;
   color: var(--mobe-text);
+}
+
+.bill-grid-shell {
+  overflow-x: auto;
+}
+
+.bill-grid-head,
+.bill-row {
+  display: grid;
+  grid-template-columns:
+    minmax(140px, 1.1fr) minmax(90px, 0.7fr) minmax(120px, 0.9fr) minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(120px, 0.9fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.bill-grid-head {
+  min-height: 40px;
+  padding: 8px 22px 6px;
+  font-size: 12px;
+  color: var(--mobe-text-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--mobe-divider) 64%, transparent);
+  min-width: 1000px;
+}
+
+.bill-groups {
+  padding: 6px 0 12px;
+  min-width: 1000px;
+}
+
+.bill-group+.bill-group {
+  margin-top: 8px;
+}
+
+.bill-group__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bill-group__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bill-group__arrow {
+  color: var(--mobe-text-soft);
+  transition: transform 0.18s ease;
+}
+
+.bill-group__arrow--collapsed {
+  transform: rotate(-90deg);
+}
+
+.bill-group__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--mobe-text);
+}
+
+.bill-group__weekday,
+.bill-group__count {
+  font-size: 12px;
+  color: var(--mobe-text-soft);
+}
+
+.bill-group__amount {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bill-group__amount--income {
+  color: #059669;
+}
+
+.bill-group__amount--expense {
+  color: #dc2626;
+}
+
+.bill-group__body {
+  padding: 0 12px;
+}
+
+.bill-row {
+  min-height: 62px;
+  padding: 0 10px;
+  border-top: 1px solid color-mix(in srgb, var(--mobe-divider) 58%, transparent);
+  transition: background-color 0.18s ease;
+}
+
+.bill-row:hover {
+  background: color-mix(in srgb, var(--mobe-surface-soft, #f7f8fa) 72%, transparent);
+}
+
+.bill-col {
+  min-width: 0;
+}
+
+.bill-time-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bill-time-wrap__main {
   font-size: 14px;
   font-weight: 600;
+  color: var(--mobe-text);
+}
+
+.bill-time-wrap__sub,
+.bill-meta-text {
+  font-size: 12px;
+  color: var(--mobe-text-soft);
+}
+
+.bill-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bill-type-badge--income {
+  background: color-mix(in srgb, #10b981 12%, white);
+  color: #059669;
+}
+
+.bill-type-badge--expense {
+  background: color-mix(in srgb, #ef4444 10%, white);
+  color: #dc2626;
+}
+
+.bill-amount-text {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bill-amount-text--income {
+  color: #059669;
+}
+
+.bill-amount-text--expense {
+  color: #dc2626;
+}
+
+.bill-op-group {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.bill-op-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 13px;
+  color: var(--mobe-text-soft);
   cursor: pointer;
-  transition: all 0.18s ease;
 }
 
-.month-picker-grid__item:hover {
-  border-color: var(--mobe-border);
-  background: var(--mobe-surface-soft, #f6f7f8);
+.bill-op-btn:hover {
+  color: var(--mobe-text);
 }
 
-.month-picker-grid__item--active {
-  border-color: var(--ui-primary, #10b981);
-  background: color-mix(in srgb, var(--ui-primary, #10b981) 8%, white);
-  color: var(--ui-primary, #10b981);
-}
-
-.bills-table-wrap {
-  overflow: auto;
-  border: 1px solid var(--mobe-border-soft);
-  border-radius: var(--mobe-radius-md);
-  background: var(--mobe-table-surface-soft);
-  box-shadow: none;
-}
-
-.bills-table {
-  min-width: 1080px;
+.bill-op-btn--danger:hover {
+  color: #dc2626;
 }
 
 .bills-pagination-bar {
@@ -2308,6 +2154,14 @@ onMounted(async () => {
   color: #e11d48;
 }
 
+.bill-native-control {
+  width: 100%;
+}
+
+.bill-native-control :deep(input) {
+  min-height: 44px;
+}
+
 .bill-amount-input {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
@@ -2335,89 +2189,6 @@ onMounted(async () => {
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-}
-
-.bill-picker-trigger {
-  width: 100%;
-  min-height: 44px;
-  justify-content: space-between;
-  border-radius: 10px;
-}
-
-.bill-date-popover {
-  padding: 8px;
-}
-
-.bill-time-popover {
-  width: 225px;
-  padding: 8px 8px 10px;
-}
-
-.bill-time-columns {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.bill-time-column {
-  min-width: 0;
-}
-
-.bill-time-column__title {
-  margin-bottom: 8px;
-  padding: 0 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--mobe-text-soft);
-}
-
-.bill-time-list {
-  max-height: 220px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding-right: 2px;
-  scroll-behavior: auto;
-}
-
-.bill-time-item {
-  height: 54px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--mobe-text);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  width: 48px;
-  align-self: center;
-  transition: background-color 0.16s ease, color 0.16s ease;
-}
-
-.bill-time-item:hover {
-  background: #f1f1f3;
-  color: var(--mobe-text);
-}
-
-.bill-time-item--active {
-  background: #f1f1f3;
-  color: var(--mobe-text);
-  font-weight: 600;
-}
-
-.bill-time-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.bill-time-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.bill-time-list::-webkit-scrollbar-thumb {
-  background: #c9c9ce;
-  border-radius: 999px;
 }
 
 .bill-selectmenu-empty {
@@ -2533,92 +2304,150 @@ onMounted(async () => {
   border-top: 1px solid var(--mobe-divider);
 }
 
-.page-header__left--hero {
-  padding: 4px 0;
-}
-
-.page-header__title-row {
+.filter-quick-actions {
   display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
   align-items: center;
-  gap: 12px;
-  margin-top: 4px;
 }
 
-.page-header__badge {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid var(--mobe-border-soft);
-  background: var(--mobe-surface-soft, #f7f8fa);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--mobe-text-soft);
-}
-
-.page-header__desc {
-  margin-top: 10px;
-  max-width: 680px;
-  color: var(--mobe-text-soft);
-  line-height: 1.8;
-}
-
-.page-header__meta {
-  display: flex;
+.filter-quick-actions--panel {
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 16px;
 }
 
-.page-header__meta-tag {
+.toolbar-date-trigger {
+  min-width: 190px;
+  justify-content: space-between;
+  border-radius: 10px;
+}
+
+.toolbar-date-trigger--range {
+  min-width: 260px;
+}
+
+.toolbar-date-trigger--month {
+  min-width: 160px;
+}
+
+.toolbar-date-trigger--panel {
+  width: 100%;
+  min-width: 0;
+}
+
+.toolbar-date-trigger__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-range-popover {
+  padding: 8px;
+}
+
+.month-picker-popover {
+  width: 280px;
+  padding: 12px;
+}
+
+.month-picker-popover__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.month-picker-popover__year {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--mobe-text);
+}
+
+.month-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.month-picker-grid__item {
+  height: 38px;
+  border: 1px solid var(--mobe-border-soft);
+  border-radius: 10px;
+  background: var(--mobe-surface, #fff);
+  color: var(--mobe-text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.month-picker-grid__item:hover {
+  border-color: var(--mobe-border);
+  background: var(--mobe-surface-soft, #f6f7f8);
+}
+
+.month-picker-grid__item--active {
+  border-color: var(--ui-primary, #10b981);
+  background: color-mix(in srgb, var(--ui-primary, #10b981) 8%, white);
+  color: var(--ui-primary, #10b981);
+}
+
+.bill-column-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.bill-column-list__item {
   display: inline-flex;
   align-items: center;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid var(--mobe-border-soft);
-  background: var(--mobe-surface-soft, #f7f8fa);
-  font-size: 12px;
-  color: var(--mobe-text-soft);
+  gap: 8px;
+  font-size: 13px;
+  color: var(--mobe-text);
 }
 
-@media (max-width: 1280px) {
-
-  .page-toolbar,
-  .page-toolbar__left,
-  .page-toolbar__right {
-    flex-wrap: wrap;
-  }
+.bill-column-list__item input {
+  width: 14px;
+  height: 14px;
 }
 
 @media (max-width: 1023px) {
-
-  .toolbar-search,
-  .toolbar-search--wide,
-  .toolbar-select,
-  .toolbar-date-trigger,
-  .toolbar-date-trigger--range,
-  .toolbar-date-trigger--month {
-    width: 100%;
-    min-width: 0;
+  .bills-workspace {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .page-toolbar__right--wrap {
+  .bills-workspace__title {
+    font-size: 28px;
+  }
+
+  .bills-workspace__desc {
+    white-space: normal;
+  }
+
+  .bills-workspace__actions {
     justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .checklist-toolbar__search {
+    width: 100%;
+  }
+
+  .bills-summary-bar {
+    gap: 14px;
+  }
+
+  .bill-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bill-column-list {
+    grid-template-columns: 1fr;
   }
 
   .bills-pagination-bar {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .bill-time-popover {
-    width: min(248px, calc(100vw - 32px));
-  }
-
-  .bill-form-grid {
-    grid-template-columns: 1fr;
   }
 
   .month-picker-popover {
