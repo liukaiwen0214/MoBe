@@ -27,8 +27,6 @@ const request = axios.create({
 request.interceptors.request.use((config) => {
   const userStore = useUserStore()
 
-  console.log('request token =', userStore.token)
-
   // 如果用户已登录，添加 Bearer 令牌到请求头
   if (userStore.token) {
     config.headers.Authorization = `Bearer ${userStore.token}`
@@ -43,10 +41,40 @@ request.interceptors.request.use((config) => {
  * 功能：处理响应数据和错误
  */
 request.interceptors.response.use(
-  // 成功响应：直接返回响应数据
+  /**
+   * 成功响应：
+   * 直接返回后端响应体
+   */
   (response) => response.data,
-  // 错误响应：将错误传递给调用方
-  (error) => Promise.reject(error)
+
+  /**
+   * 错误响应：
+   * 优先提取后端返回的 message，保证页面 catch 时能直接拿到可用提示
+   */
+  (error) => {
+    const responseData = error?.response?.data
+
+    const message =
+      responseData?.message ||
+      responseData?.msg ||
+      responseData?.data ||
+      error?.message ||
+      '请求失败，请稍后重试'
+
+    const normalizedError = new Error(message) as Error & {
+      code?: number
+      status?: number
+      response?: any
+      raw?: any
+    }
+
+    normalizedError.code = responseData?.code
+    normalizedError.status = error?.response?.status
+    normalizedError.response = responseData
+    normalizedError.raw = error
+
+    return Promise.reject(normalizedError)
+  }
 )
 
 export default request

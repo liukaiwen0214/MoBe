@@ -54,7 +54,7 @@ watch(
 </script>
 
 <template>
-  <UApp>
+  <UApp :toaster="{ position: 'top-right' }">
     <Transition name="global-loader-fade">
       <div v-if="showGlobalLoader" class="global-loader">
         <div class="global-loader__inner">

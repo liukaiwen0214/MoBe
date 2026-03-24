@@ -81,7 +81,7 @@ public class UserController {
      */
     @GetMapping("/me")
     public ApiResponse<UserMeResponse> me(HttpServletRequest request) {
-        log.info("收到获取当前用户信息请求");
+        log.info("收到获取当前用户信息请求，请求参数={}", request);
         UserMeResponse response = userService.getCurrentUser(request);
         return ApiResponse.success("获取当前用户成功", response);
     }

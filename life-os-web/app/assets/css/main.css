@@ -11,10 +11,11 @@
 
 :root {
   /* ===== 基础背景 ===== */
-  --mobe-bg: #f7f8f4;
-  --mobe-surface: #f7f8f4;
-  --mobe-surface-soft: #fbfcf8;
-  --mobe-surface-elevated: #ffffff;
+--mobe-bg: linear-gradient(120deg, #fdfbfb 0%, #ebedee 100%);
+--mobe-surface: rgba(255, 255, 255, 0.72);
+--mobe-surface-soft: rgba(255, 255, 255, 0.52);
+--mobe-surface-elevated: #ffffff;
+--mobe-table-surface-soft: color-mix(in srgb, white 55%, transparent);
 
   /* ===== 文本颜色 ===== */
   --mobe-text: #23324a;
@@ -117,7 +118,15 @@ body {
   font-size: var(--mobe-font-md);
   line-height: 1.5;
 }
+button,
+[role="button"] {
+  cursor: pointer;
+}
 
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
 * {
   box-sizing: border-box;
 }
@@ -127,6 +136,10 @@ input,
 select,
 textarea {
   font: inherit;
+}
+a,
+summary {
+  cursor: pointer;
 }
 
 /* ========================================

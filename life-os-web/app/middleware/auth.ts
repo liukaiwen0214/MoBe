@@ -22,8 +22,6 @@ export default defineNuxtRouteMiddleware(async () => {
   // 初始化令牌
   userStore.initToken()
 
-  console.log('auth middleware running, token=', userStore.token)
-
   // 如果没有令牌，重定向到登录页
   if (!userStore.token) {
     return navigateTo('/login', { replace: true })
@@ -35,11 +33,9 @@ export default defineNuxtRouteMiddleware(async () => {
   }
 
   try {
-    console.log('calling fetchMe...')
     // 获取用户信息
     await userStore.fetchMe()
   } catch (error) {
-    console.error('fetchMe failed', error)
     // 获取用户信息失败，注销用户并重定向到登录页
     userStore.logout()
     return navigateTo('/login', { replace: true })
