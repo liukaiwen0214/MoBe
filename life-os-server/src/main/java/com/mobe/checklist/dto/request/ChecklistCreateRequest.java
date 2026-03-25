@@ -1,10 +1,12 @@
 package com.mobe.checklist.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+
 /**
- * 新增清单请求
+ * 新增清单执行项请求
  */
 @Data
 public class ChecklistCreateRequest {
@@ -17,42 +19,50 @@ public class ChecklistCreateRequest {
     /**
      * 所属任务名称
      */
-    @NotBlank(message = "所属任务名称不能为空")
     private String taskName;
 
     /**
-     * 清单标题
+     * 所属习惯ID
      */
-    @NotBlank(message = "清单标题不能为空")
+    private String habitId;
+
+    /**
+     * 所属习惯名称
+     */
+    private String habitName;
+
+    /**
+     * 标题
+     */
     private String title;
 
     /**
-     * 清单说明
+     * 说明
      */
     private String description;
 
     /**
-     * 优先级：HIGH/MEDIUM/LOW
+     * 执行日期
      */
-    private String priority;
+    private LocalDate executeDate;
 
     /**
-     * 提醒文案
+     * 执行时间
      */
-    private String reminderText;
+    private LocalTime executeTime;
 
     /**
-     * 动作文案
+     * 备注
      */
-    private String actionText;
+    private String note;
 
     /**
-     * 动作类型
+     * 状态：PENDING / DONE / SKIPPED / MISSED
      */
-    private String actionType;
+    private String status;
 
     /**
-     * 排序值
+     * 排序
      */
     private Integer sort;
 }

@@ -1387,7 +1387,7 @@ onMounted(async () => {
               <div class="bill-form-field">
                 <label class="bill-form-field__label">分类</label>
                 <USelectMenu v-model="billForm.category" v-model:search-term="categorySearchTerm"
-                  :items="categorySelectMenuItems" value-key="value" label-key="label" searchable 
+                  :items="categorySelectMenuItems" value-key="value" label-key="label" searchable
                   placeholder="请选择或搜索分类">
                   <template #empty>
                     <div class="bill-selectmenu-empty">没有匹配结果</div>
@@ -2249,8 +2249,8 @@ onMounted(async () => {
 
 .bill-import-dropzone:hover,
 .bill-import-dropzone--active {
-  border-color: var(--ui-primary, #10b981);
-  background: color-mix(in srgb, var(--ui-primary, #10b981) 6%, white);
+  border-color: var(--mobe-primary, #10b981);
+  background: color-mix(in srgb, var(--mobe-primary, #10b981) 6%, white);
 }
 
 .bill-import-dropzone__icon {
@@ -2275,7 +2275,7 @@ onMounted(async () => {
 .bill-import-dropzone__file {
   margin-top: 14px;
   font-size: 13px;
-  color: var(--ui-primary, #10b981);
+  color: var(--mobe-primary, #10b981);
   word-break: break-all;
 }
 
@@ -2386,9 +2386,9 @@ onMounted(async () => {
 }
 
 .month-picker-grid__item--active {
-  border-color: var(--ui-primary, #10b981);
-  background: color-mix(in srgb, var(--ui-primary, #10b981) 8%, white);
-  color: var(--ui-primary, #10b981);
+  border-color: var(--mobe-primary, #10b981);
+  background: color-mix(in srgb, var(--mobe-primary, #10b981) 8%, white);
+  color: var(--mobe-text, #10b981);
 }
 
 .bill-column-list {

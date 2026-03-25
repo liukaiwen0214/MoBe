@@ -2,8 +2,10 @@ package com.mobe.checklist.dto.request;
 
 import lombok.Data;
 
+import java.time.LocalDate;
+
 /**
- * 清单分页查询请求
+ * 清单执行项分页请求
  */
 @Data
 public class ChecklistPageRequest {
@@ -19,33 +21,17 @@ public class ChecklistPageRequest {
     private Long pageSize;
 
     /**
-     * 关键词
+     * 关键字：任务名 / 习惯名 / 标题 / 说明 / 备注
      */
     private String keyword;
 
     /**
-     * 状态：PENDING/DONE
+     * 状态：PENDING / DONE / SKIPPED / MISSED
      */
     private String status;
 
     /**
-     * 优先级：HIGH/MEDIUM/LOW
+     * 执行日期
      */
-    private String priority;
-
-    /**
-     * 频率：ONCE/DAILY/WEEKLY/MONTHLY
-     * 当前普通清单先固定 ONCE，字段先预留
-     */
-    private String frequency;
-
-    /**
-     * 是否仅看有提醒：1是 0否
-     */
-    private Integer reminderOnly;
-
-    /**
-     * 是否仅看有动作：1是 0否
-     */
-    private Integer actionOnly;
+    private LocalDate executeDate;
 }

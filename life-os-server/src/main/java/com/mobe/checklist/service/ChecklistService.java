@@ -5,23 +5,29 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mobe.checklist.dto.request.ChecklistCreateRequest;
 import com.mobe.checklist.dto.request.ChecklistPageRequest;
 import com.mobe.checklist.dto.request.ChecklistUpdateRequest;
-import com.mobe.checklist.dto.response.ChecklistItemResponse;
-import com.mobe.checklist.entity.ChecklistItemEntity;
-import com.mobe.checklist.entity.ChecklistInstanceEntity;
-import com.mobe.checklist.mapper.ChecklistInstanceMapper;
-import com.mobe.checklist.mapper.ChecklistItemMapper;
+import com.mobe.checklist.dto.response.ChecklistExecutionResponse;
+import com.mobe.checklist.entity.ChecklistEntity;
+import com.mobe.checklist.entity.ChecklistExecutionEntity;
+import com.mobe.checklist.mapper.ChecklistExecutionMapper;
+import com.mobe.checklist.mapper.ChecklistMapper;
+import com.mobe.habit.entity.HabitEntity;
+import com.mobe.habit.mapper.HabitMapper;
+import com.mobe.task.entity.TaskEntity;
+import com.mobe.task.mapper.TaskMapper;
 import com.mobe.common.exception.BizException;
 import com.mobe.finance.dto.response.PageResponse;
 import com.mobe.user.dto.UserMeResponse;
 import com.mobe.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 清单服务类
@@ -29,125 +35,154 @@ import java.util.List;
 @Service
 public class ChecklistService {
 
-    private final ChecklistItemMapper checklistItemMapper;
-    private final ChecklistInstanceMapper checklistInstanceMapper;
+    private final ChecklistExecutionMapper checklistExecutionMapper;
     private final UserService userService;
+    private final TaskMapper taskMapper;
+    private final HabitMapper habitMapper;
+    private final ChecklistMapper checklistMapper;
 
-    public ChecklistService(ChecklistItemMapper checklistItemMapper,
-                            ChecklistInstanceMapper checklistInstanceMapper,
-                            UserService userService) {
-        this.checklistItemMapper = checklistItemMapper;
-        this.checklistInstanceMapper = checklistInstanceMapper;
+    public ChecklistService(
+            ChecklistExecutionMapper checklistExecutionMapper,
+            UserService userService,
+            TaskMapper taskMapper,
+            HabitMapper habitMapper,
+            ChecklistMapper checklistMapper) {
+        this.checklistExecutionMapper = checklistExecutionMapper;
         this.userService = userService;
-    }
-
-    /**
-     * 新增普通清单
-     */
-    public void createChecklist(ChecklistCreateRequest request, HttpServletRequest httpServletRequest) {
-        UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
-
-        ChecklistItemEntity itemEntity = new ChecklistItemEntity();
-        itemEntity.setUserId(currentUser.getId());
-        itemEntity.setTaskId(request.getTaskId());
-        itemEntity.setTaskName(request.getTaskName());
-        itemEntity.setTitle(request.getTitle());
-        itemEntity.setDescription(request.getDescription());
-        itemEntity.setPriority(normalizePriority(request.getPriority()));
-        itemEntity.setReminderText(request.getReminderText());
-        itemEntity.setActionText(request.getActionText());
-        itemEntity.setActionType(request.getActionType());
-        itemEntity.setStatus("PENDING");
-        itemEntity.setSort(request.getSort() == null ? 0 : request.getSort());
-        itemEntity.setCompletedAt(null);
-
-        checklistItemMapper.insert(itemEntity);
-
-        ChecklistInstanceEntity instanceEntity = new ChecklistInstanceEntity();
-        instanceEntity.setUserId(currentUser.getId());
-        instanceEntity.setSourceType("CHECKLIST");
-        instanceEntity.setSourceId(itemEntity.getId());
-        instanceEntity.setTaskId(request.getTaskId());
-        instanceEntity.setTaskName(request.getTaskName());
-        instanceEntity.setTitle(request.getTitle());
-        instanceEntity.setDescription(request.getDescription());
-        instanceEntity.setPriority(normalizePriority(request.getPriority()));
-        instanceEntity.setFrequency("ONCE");
-        instanceEntity.setReminderText(request.getReminderText());
-        instanceEntity.setActionText(request.getActionText());
-        instanceEntity.setActionType(request.getActionType());
-        instanceEntity.setStatus("PENDING");
-        instanceEntity.setInstanceDate(LocalDate.now());
-        instanceEntity.setSort(request.getSort() == null ? 0 : request.getSort());
-        instanceEntity.setCompletedAt(null);
-
-        checklistInstanceMapper.insert(instanceEntity);
+        this.taskMapper = taskMapper;
+        this.habitMapper = habitMapper;
+        this.checklistMapper = checklistMapper;
     }
 
     /**
      * 分页查询清单
      */
-    public PageResponse<ChecklistItemResponse> pageChecklists(ChecklistPageRequest request,
-                                                              HttpServletRequest httpServletRequest) {
+    public PageResponse<ChecklistExecutionResponse> pageChecklists(ChecklistPageRequest request,
+            HttpServletRequest httpServletRequest) {
         UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
 
         long pageNum = request.getPageNum() == null || request.getPageNum() < 1 ? 1 : request.getPageNum();
         long pageSize = request.getPageSize() == null || request.getPageSize() < 1 ? 10 : request.getPageSize();
 
-        Page<ChecklistInstanceEntity> page = new Page<>(pageNum, pageSize);
+        Page<ChecklistExecutionEntity> page = new Page<>(pageNum, pageSize);
 
-        LambdaQueryWrapper<ChecklistInstanceEntity> wrapper = new LambdaQueryWrapper<ChecklistInstanceEntity>()
-                .eq(ChecklistInstanceEntity::getUserId, currentUser.getId())
-                .eq(ChecklistInstanceEntity::getIsDeleted, 0)
-                .orderByAsc(ChecklistInstanceEntity::getStatus)
-                .orderByDesc(ChecklistInstanceEntity::getPriority)
-                .orderByAsc(ChecklistInstanceEntity::getSort)
-                .orderByDesc(ChecklistInstanceEntity::getCreatedAt);
-
-        if (StringUtils.hasText(request.getKeyword())) {
-            wrapper.and(q -> q
-                    .like(ChecklistInstanceEntity::getTaskName, request.getKeyword())
-                    .or()
-                    .like(ChecklistInstanceEntity::getTitle, request.getKeyword())
-                    .or()
-                    .like(ChecklistInstanceEntity::getDescription, request.getKeyword())
-                    .or()
-                    .like(ChecklistInstanceEntity::getReminderText, request.getKeyword())
-                    .or()
-                    .like(ChecklistInstanceEntity::getActionText, request.getKeyword()));
-        }
+        LambdaQueryWrapper<ChecklistExecutionEntity> wrapper = new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                .eq(ChecklistExecutionEntity::getIsDeleted, 0)
+                .orderByAsc(ChecklistExecutionEntity::getStatus)
+                .orderByAsc(ChecklistExecutionEntity::getSort)
+                .orderByDesc(ChecklistExecutionEntity::getExecuteDate)
+                .orderByDesc(ChecklistExecutionEntity::getCreatedAt);
 
         if (StringUtils.hasText(request.getStatus())) {
-            wrapper.eq(ChecklistInstanceEntity::getStatus, request.getStatus());
+            wrapper.eq(ChecklistExecutionEntity::getStatus, request.getStatus());
         }
 
-        if (StringUtils.hasText(request.getPriority())) {
-            wrapper.eq(ChecklistInstanceEntity::getPriority, request.getPriority());
+        if (request.getExecuteDate() != null) {
+            wrapper.eq(ChecklistExecutionEntity::getExecuteDate, request.getExecuteDate());
         }
 
-        if (StringUtils.hasText(request.getFrequency())) {
-            wrapper.eq(ChecklistInstanceEntity::getFrequency, request.getFrequency());
+        Page<ChecklistExecutionEntity> entityPage = checklistExecutionMapper.selectPage(page, wrapper);
+        List<ChecklistExecutionEntity> executionList = entityPage.getRecords();
+
+        if (executionList.isEmpty()) {
+            PageResponse<ChecklistExecutionResponse> empty = new PageResponse<>();
+            empty.setTotal(entityPage.getTotal());
+            empty.setPageNum(entityPage.getCurrent());
+            empty.setPageSize(entityPage.getSize());
+            empty.setRecords(List.of());
+            return empty;
         }
 
-        if (request.getReminderOnly() != null && request.getReminderOnly() == 1) {
-            wrapper.isNotNull(ChecklistInstanceEntity::getReminderText)
-                    .ne(ChecklistInstanceEntity::getReminderText, "");
-        }
+        Set<String> taskIds = executionList.stream()
+                .map(ChecklistExecutionEntity::getTaskId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
 
-        if (request.getActionOnly() != null && request.getActionOnly() == 1) {
-            wrapper.isNotNull(ChecklistInstanceEntity::getActionText)
-                    .ne(ChecklistInstanceEntity::getActionText, "");
-        }
+        Set<String> habitIds = executionList.stream()
+                .map(ChecklistExecutionEntity::getHabitId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
 
-        Page<ChecklistInstanceEntity> entityPage = checklistInstanceMapper.selectPage(page, wrapper);
+        Set<String> checklistIds = executionList.stream()
+                .map(ChecklistExecutionEntity::getChecklistId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
 
-        List<ChecklistItemResponse> records = entityPage.getRecords().stream().map(entity -> {
-            ChecklistItemResponse response = new ChecklistItemResponse();
-            BeanUtils.copyProperties(entity, response);
-            return response;
-        }).toList();
+        final Map<String, TaskEntity> taskMap = taskIds.isEmpty()
+                ? Collections.emptyMap()
+                : taskMapper.selectList(new LambdaQueryWrapper<TaskEntity>()
+                        .in(TaskEntity::getId, taskIds)
+                        .eq(TaskEntity::getIsDeleted, 0))
+                        .stream()
+                        .collect(Collectors.toMap(TaskEntity::getId, item -> item));
 
-        PageResponse<ChecklistItemResponse> response = new PageResponse<>();
+        final Map<String, HabitEntity> habitMap = habitIds.isEmpty()
+                ? Collections.emptyMap()
+                : habitMapper.selectList(new LambdaQueryWrapper<HabitEntity>()
+                        .in(HabitEntity::getId, habitIds)
+                        .eq(HabitEntity::getIsDeleted, 0))
+                        .stream()
+                        .collect(Collectors.toMap(HabitEntity::getId, item -> item));
+
+        final Map<String, ChecklistEntity> checklistMap = checklistIds.isEmpty()
+                ? Collections.emptyMap()
+                : checklistMapper.selectList(new LambdaQueryWrapper<ChecklistEntity>()
+                        .in(ChecklistEntity::getId, checklistIds)
+                        .eq(ChecklistEntity::getIsDeleted, 0))
+                        .stream()
+                        .collect(Collectors.toMap(ChecklistEntity::getId, item -> item));
+
+        String keyword = StringUtils.hasText(request.getKeyword()) ? request.getKeyword().trim().toLowerCase() : null;
+
+        List<ChecklistExecutionResponse> records = executionList.stream()
+                .map(entity -> {
+                    ChecklistExecutionResponse response = new ChecklistExecutionResponse();
+                    response.setId(entity.getId());
+                    response.setTaskId(entity.getTaskId());
+                    response.setHabitId(entity.getHabitId());
+                    response.setChecklistId(entity.getChecklistId());
+                    response.setStatus(entity.getStatus());
+                    response.setExecuteDate(entity.getExecuteDate());
+                    response.setExecuteTime(entity.getExecuteTime());
+                    response.setNote(entity.getNote());
+                    response.setSort(entity.getSort());
+                    response.setCompletedAt(entity.getCompletedAt());
+                    response.setCreatedAt(entity.getCreatedAt());
+
+                    TaskEntity task = taskMap.get(entity.getTaskId());
+                    if (task != null) {
+                        response.setTaskName(task.getName());
+                    }
+
+                    HabitEntity habit = habitMap.get(entity.getHabitId());
+                    if (habit != null) {
+                        response.setHabitName(habit.getName());
+                    }
+
+                    ChecklistEntity checklist = checklistMap.get(entity.getChecklistId());
+                    if (checklist != null) {
+                        response.setTitle(checklist.getTitle());
+                        response.setDescription(checklist.getDescription());
+                    }
+
+                    return response;
+                })
+                .filter(item -> {
+                    if (!StringUtils.hasText(keyword)) {
+                        return true;
+                    }
+                    String text = String.join(" ",
+                            defaultString(item.getTaskName()),
+                            defaultString(item.getHabitName()),
+                            defaultString(item.getTitle()),
+                            defaultString(item.getDescription()),
+                            defaultString(item.getNote())).toLowerCase();
+                    return text.contains(keyword);
+                })
+                .toList();
+
+        PageResponse<ChecklistExecutionResponse> response = new PageResponse<>();
         response.setTotal(entityPage.getTotal());
         response.setPageNum(entityPage.getCurrent());
         response.setPageSize(entityPage.getSize());
@@ -156,97 +191,90 @@ public class ChecklistService {
     }
 
     /**
-     * 更新普通清单
+     * 新增清单执行项
      */
-    public void updateChecklist(ChecklistUpdateRequest request, HttpServletRequest httpServletRequest) {
+    public String createChecklist(ChecklistCreateRequest request, HttpServletRequest httpServletRequest) {
         UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
 
-        ChecklistItemEntity itemEntity = checklistItemMapper.selectOne(
-                new LambdaQueryWrapper<ChecklistItemEntity>()
-                        .eq(ChecklistItemEntity::getId, request.getId())
-                        .eq(ChecklistItemEntity::getUserId, currentUser.getId())
-                        .eq(ChecklistItemEntity::getIsDeleted, 0)
-                        .last("LIMIT 1")
-        );
+        LocalDateTime now = LocalDateTime.now();
 
-        if (itemEntity == null) {
-            throw new BizException("清单不存在");
+        // 1. 参数校验
+        if (!StringUtils.hasText(request.getTaskId())) {
+            throw new BizException("所属任务不能为空");
+        }
+        if (!StringUtils.hasText(request.getTitle())) {
+            throw new BizException("清单标题不能为空");
+        }
+        if (request.getExecuteDate() == null) {
+            throw new BizException("执行日期不能为空");
         }
 
-        itemEntity.setTaskId(request.getTaskId());
-        itemEntity.setTaskName(request.getTaskName());
-        itemEntity.setTitle(request.getTitle());
-        itemEntity.setDescription(request.getDescription());
-        itemEntity.setPriority(normalizePriority(request.getPriority()));
-        itemEntity.setReminderText(request.getReminderText());
-        itemEntity.setActionText(request.getActionText());
-        itemEntity.setActionType(request.getActionType());
-        itemEntity.setSort(request.getSort() == null ? 0 : request.getSort());
+        // 2. 先插入 checklist
+        ChecklistEntity checklist = new ChecklistEntity();
+        checklist.setTaskId(request.getTaskId());
+        checklist.setTaskName(request.getTaskName());
+        checklist.setHabitId(request.getHabitId());
+        checklist.setHabitName(request.getHabitName());
+        checklist.setTitle(request.getTitle());
+        checklist.setDescription(request.getDescription());
+        checklist.setUserId(currentUser.getId());
+        checklist.setIsDeleted(0);
+        checklist.setCreatedAt(now);
+        checklist.setUpdatedAt(now);
 
-        checklistItemMapper.updateById(itemEntity);
+        checklistMapper.insert(checklist);
 
-        ChecklistInstanceEntity instanceEntity = checklistInstanceMapper.selectOne(
-                new LambdaQueryWrapper<ChecklistInstanceEntity>()
-                        .eq(ChecklistInstanceEntity::getSourceType, "CHECKLIST")
-                        .eq(ChecklistInstanceEntity::getSourceId, request.getId())
-                        .eq(ChecklistInstanceEntity::getUserId, currentUser.getId())
-                        .eq(ChecklistInstanceEntity::getIsDeleted, 0)
-                        .last("LIMIT 1")
-        );
+        // 3. 再插入 checklist_execution
+        ChecklistExecutionEntity execution = new ChecklistExecutionEntity();
+        execution.setChecklistId(checklist.getId());
+        execution.setTaskId(request.getTaskId());
+        execution.setHabitId(request.getHabitId());
+        execution.setExecuteDate(request.getExecuteDate());
 
-        if (instanceEntity != null) {
-            instanceEntity.setTaskId(request.getTaskId());
-            instanceEntity.setTaskName(request.getTaskName());
-            instanceEntity.setTitle(request.getTitle());
-            instanceEntity.setDescription(request.getDescription());
-            instanceEntity.setPriority(normalizePriority(request.getPriority()));
-            instanceEntity.setReminderText(request.getReminderText());
-            instanceEntity.setActionText(request.getActionText());
-            instanceEntity.setActionType(request.getActionType());
-            instanceEntity.setSort(request.getSort() == null ? 0 : request.getSort());
-
-            checklistInstanceMapper.updateById(instanceEntity);
+        if (request.getExecuteTime() != null) {
+            execution.setExecuteTime(request.getExecuteTime());
         }
+
+        execution.setStatus(request.getStatus());
+        execution.setNote(request.getNote());
+        execution.setSort(request.getSort() == null ? 0 : request.getSort());
+        execution.setUserId(currentUser.getId());
+        execution.setIsDeleted(0);
+        execution.setCreatedAt(now);
+        execution.setUpdatedAt(now);
+
+        checklistExecutionMapper.insert(execution);
+
+        return "新增成功";
     }
 
     /**
-     * 完成清单
+     * 完成清单执行项
      */
     public void completeChecklist(String id, HttpServletRequest httpServletRequest) {
         UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
+
+        ChecklistExecutionEntity execution = checklistExecutionMapper.selectOne(
+                new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                        .eq(ChecklistExecutionEntity::getId, id)
+                        .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                        .eq(ChecklistExecutionEntity::getIsDeleted, 0)
+                        .last("LIMIT 1"));
+
+        if (execution == null) {
+            throw new BizException("清单执行项不存在");
+        }
+
+        if (!"PENDING".equals(execution.getStatus())) {
+            throw new BizException("当前状态不允许完成");
+        }
+
         LocalDateTime now = LocalDateTime.now();
+        execution.setStatus("DONE");
+        execution.setCompletedAt(now);
+        execution.setUpdatedAt(now);
 
-        ChecklistInstanceEntity instanceEntity = checklistInstanceMapper.selectOne(
-                new LambdaQueryWrapper<ChecklistInstanceEntity>()
-                        .eq(ChecklistInstanceEntity::getId, id)
-                        .eq(ChecklistInstanceEntity::getUserId, currentUser.getId())
-                        .eq(ChecklistInstanceEntity::getIsDeleted, 0)
-                        .last("LIMIT 1")
-        );
-
-        if (instanceEntity == null) {
-            throw new BizException("清单不存在");
-        }
-
-        instanceEntity.setStatus("DONE");
-        instanceEntity.setCompletedAt(now);
-        checklistInstanceMapper.updateById(instanceEntity);
-
-        if ("CHECKLIST".equals(instanceEntity.getSourceType())) {
-            ChecklistItemEntity itemEntity = checklistItemMapper.selectOne(
-                    new LambdaQueryWrapper<ChecklistItemEntity>()
-                            .eq(ChecklistItemEntity::getId, instanceEntity.getSourceId())
-                            .eq(ChecklistItemEntity::getUserId, currentUser.getId())
-                            .eq(ChecklistItemEntity::getIsDeleted, 0)
-                            .last("LIMIT 1")
-            );
-
-            if (itemEntity != null) {
-                itemEntity.setStatus("DONE");
-                itemEntity.setCompletedAt(now);
-                checklistItemMapper.updateById(itemEntity);
-            }
-        }
+        checklistExecutionMapper.updateById(execution);
     }
 
     /**
@@ -255,86 +283,127 @@ public class ChecklistService {
     public void restoreChecklist(String id, HttpServletRequest httpServletRequest) {
         UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
 
-        ChecklistInstanceEntity instanceEntity = checklistInstanceMapper.selectOne(
-                new LambdaQueryWrapper<ChecklistInstanceEntity>()
-                        .eq(ChecklistInstanceEntity::getId, id)
-                        .eq(ChecklistInstanceEntity::getUserId, currentUser.getId())
-                        .eq(ChecklistInstanceEntity::getIsDeleted, 0)
-                        .last("LIMIT 1")
-        );
+        ChecklistExecutionEntity execution = checklistExecutionMapper.selectOne(
+                new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                        .eq(ChecklistExecutionEntity::getId, id)
+                        .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                        .eq(ChecklistExecutionEntity::getIsDeleted, 0)
+                        .last("LIMIT 1"));
 
-        if (instanceEntity == null) {
-            throw new BizException("清单不存在");
+        if (execution == null) {
+            throw new BizException("清单执行项不存在");
         }
 
-        instanceEntity.setStatus("PENDING");
-        instanceEntity.setCompletedAt(null);
-        checklistInstanceMapper.updateById(instanceEntity);
-
-        if ("CHECKLIST".equals(instanceEntity.getSourceType())) {
-            ChecklistItemEntity itemEntity = checklistItemMapper.selectOne(
-                    new LambdaQueryWrapper<ChecklistItemEntity>()
-                            .eq(ChecklistItemEntity::getId, instanceEntity.getSourceId())
-                            .eq(ChecklistItemEntity::getUserId, currentUser.getId())
-                            .eq(ChecklistItemEntity::getIsDeleted, 0)
-                            .last("LIMIT 1")
-            );
-
-            if (itemEntity != null) {
-                itemEntity.setStatus("PENDING");
-                itemEntity.setCompletedAt(null);
-                checklistItemMapper.updateById(itemEntity);
-            }
+        if (!"DONE".equals(execution.getStatus())) {
+            throw new BizException("当前状态不允许恢复");
         }
+
+        LocalDateTime now = LocalDateTime.now();
+        execution.setStatus("PENDING");
+        execution.setCompletedAt(null);
+        execution.setUpdatedAt(now);
+
+        checklistExecutionMapper.updateById(execution);
     }
 
     /**
-     * 删除清单
+     * 跳过清单执行项
+     */
+    public void skipChecklist(String id, HttpServletRequest httpServletRequest) {
+        UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
+
+        ChecklistExecutionEntity execution = checklistExecutionMapper.selectOne(
+                new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                        .eq(ChecklistExecutionEntity::getId, id)
+                        .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                        .eq(ChecklistExecutionEntity::getIsDeleted, 0)
+                        .last("LIMIT 1"));
+
+        if (execution == null) {
+            throw new BizException("清单执行项不存在");
+        }
+
+        if (!"PENDING".equals(execution.getStatus())) {
+            throw new BizException("当前状态不允许跳过");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        execution.setStatus("SKIPPED");
+        execution.setUpdatedAt(now);
+
+        checklistExecutionMapper.updateById(execution);
+    }
+
+    /**
+     * 删除清单执行项
      */
     public void deleteChecklist(String id, HttpServletRequest httpServletRequest) {
         UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
 
-        ChecklistInstanceEntity instanceEntity = checklistInstanceMapper.selectOne(
-                new LambdaQueryWrapper<ChecklistInstanceEntity>()
-                        .eq(ChecklistInstanceEntity::getId, id)
-                        .eq(ChecklistInstanceEntity::getUserId, currentUser.getId())
-                        .eq(ChecklistInstanceEntity::getIsDeleted, 0)
-                        .last("LIMIT 1")
-        );
+        ChecklistExecutionEntity execution = checklistExecutionMapper.selectOne(
+                new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                        .eq(ChecklistExecutionEntity::getId, id)
+                        .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                        .eq(ChecklistExecutionEntity::getIsDeleted, 0)
+                        .last("LIMIT 1"));
 
-        if (instanceEntity == null) {
-            throw new BizException("清单不存在");
+        if (execution == null) {
+            throw new BizException("清单执行项不存在");
         }
 
-        instanceEntity.setIsDeleted(1);
-        checklistInstanceMapper.updateById(instanceEntity);
+        LocalDateTime now = LocalDateTime.now();
+        execution.setIsDeleted(1);
+        execution.setUpdatedAt(now);
 
-        if ("CHECKLIST".equals(instanceEntity.getSourceType())) {
-            ChecklistItemEntity itemEntity = checklistItemMapper.selectOne(
-                    new LambdaQueryWrapper<ChecklistItemEntity>()
-                            .eq(ChecklistItemEntity::getId, instanceEntity.getSourceId())
-                            .eq(ChecklistItemEntity::getUserId, currentUser.getId())
-                            .eq(ChecklistItemEntity::getIsDeleted, 0)
-                            .last("LIMIT 1")
-            );
+        checklistExecutionMapper.updateById(execution);
+    }
 
-            if (itemEntity != null) {
-                itemEntity.setIsDeleted(1);
-                checklistItemMapper.updateById(itemEntity);
+    public void updateChecklist(ChecklistUpdateRequest request, HttpServletRequest httpServletRequest) {
+        UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
+
+        ChecklistExecutionEntity execution = checklistExecutionMapper.selectOne(
+                new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                        .eq(ChecklistExecutionEntity::getId, request.getId())
+                        .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                        .eq(ChecklistExecutionEntity::getIsDeleted, 0)
+                        .last("LIMIT 1"));
+
+        if (execution == null) {
+            throw new BizException("清单执行项不存在");
+        }
+
+        execution.setTaskId(request.getTaskId());
+        execution.setHabitId(request.getHabitId());
+        execution.setExecuteDate(request.getExecuteDate());
+        execution.setExecuteTime(request.getExecuteTime());
+        execution.setNote(request.getNote());
+        execution.setUpdatedAt(LocalDateTime.now());
+
+        checklistExecutionMapper.updateById(execution);
+
+        if (execution.getChecklistId() != null) {
+            ChecklistEntity checklist = checklistMapper.selectOne(
+                    new LambdaQueryWrapper<ChecklistEntity>()
+                            .eq(ChecklistEntity::getId, execution.getChecklistId())
+                            .eq(ChecklistEntity::getUserId, currentUser.getId())
+                            .eq(ChecklistEntity::getIsDeleted, 0)
+                            .last("LIMIT 1"));
+
+            if (checklist != null) {
+                checklist.setTaskId(request.getTaskId());
+                checklist.setHabitId(request.getHabitId());
+                checklist.setTaskName(request.getTaskName());
+                checklist.setHabitName(request.getHabitName());
+                checklist.setTitle(request.getTitle());
+                checklist.setDescription(request.getDescription());
+                checklist.setUpdatedAt(LocalDateTime.now());
+                checklistMapper.updateById(checklist);
             }
         }
     }
 
-    private String normalizePriority(String priority) {
-        if (!StringUtils.hasText(priority)) {
-            return "MEDIUM";
-        }
-
-        return switch (priority.toUpperCase()) {
-            case "HIGH" -> "HIGH";
-            case "LOW" -> "LOW";
-            default -> "MEDIUM";
-        };
+    private String defaultString(String value) {
+        return value == null ? "" : value;
     }
 
     private UserMeResponse getLoginUserEntity(HttpServletRequest httpServletRequest) {

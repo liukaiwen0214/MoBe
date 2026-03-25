@@ -2,16 +2,18 @@ package com.mobe.checklist.dto.response;
 
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 /**
- * 清单项响应
+ * 清单执行项响应
  */
 @Data
-public class ChecklistItemResponse {
+public class ChecklistExecutionResponse {
 
     /**
-     * 清单ID
+     * 执行ID
      */
     private String id;
 
@@ -26,52 +28,52 @@ public class ChecklistItemResponse {
     private String taskName;
 
     /**
-     * 清单标题
+     * 所属习惯ID
+     */
+    private String habitId;
+
+    /**
+     * 所属习惯名称
+     */
+    private String habitName;
+
+    /**
+     * 清单定义ID
+     */
+    private String checklistId;
+
+    /**
+     * 标题
      */
     private String title;
 
     /**
-     * 清单说明
+     * 说明
      */
     private String description;
 
     /**
-     * 优先级：HIGH/MEDIUM/LOW
-     */
-    private String priority;
-
-    /**
-     * 提醒文案
-     */
-    private String reminderText;
-
-    /**
-     * 动作文案
-     */
-    private String actionText;
-
-    /**
-     * 动作类型
-     */
-    private String actionType;
-
-    /**
-     * 状态：PENDING/DONE
+     * 状态：PENDING / DONE / SKIPPED / MISSED
      */
     private String status;
 
     /**
-     * 来源类型：CHECKLIST/HABIT
+     * 执行日期
      */
-    private String sourceType;
+    private LocalDate executeDate;
 
     /**
-     * 展示频率
+     * 执行时间
      */
-    private String frequency;
+    private LocalTime executeTime;
 
     /**
-     * 排序值
+     * 备注
+     */
+    private String note;
+
+    /**
+     * 排序
      */
     private Integer sort;
 

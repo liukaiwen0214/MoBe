@@ -1,86 +1,72 @@
 import request from '~/utils/request'
 
 /**
- * 清单优先级
+ * 清单执行状态
  */
-export type ChecklistPriority = 'HIGH' | 'MEDIUM' | 'LOW'
+export type ChecklistExecutionStatus = 'PENDING' | 'DONE' | 'SKIPPED' | 'MISSED'
 
 /**
- * 清单状态
+ * 新增清单执行项请求
  */
-export type ChecklistStatus = 'PENDING' | 'DONE'
-
-/**
- * 清单频率
- */
-export type ChecklistFrequency = 'ONCE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
-
-/**
- * 来源类型
- */
-export type ChecklistSourceType = 'CHECKLIST' | 'HABIT'
-
-/**
- * 新增清单请求
- */
-export type ChecklistCreateRequest = {
+export interface ChecklistCreateRequest {
   taskId?: string
   taskName: string
+  habitId?: string
+  habitName?: string
   title: string
   description?: string
-  priority?: ChecklistPriority
-  reminderText?: string
-  actionText?: string
-  actionType?: string
+  executeDate: string
+  executeTime?: string
+  note?: string
+  status?: ChecklistExecutionStatus
   sort?: number
 }
 
 /**
- * 更新清单请求
+ * 更新清单执行项请求
  */
-export type ChecklistUpdateRequest = {
+export interface ChecklistUpdateRequest {
   id: string
   taskId?: string
-  taskName: string
+  taskName?: string
+  habitId?: string
+  habitName?: string
   title: string
   description?: string
-  priority?: ChecklistPriority
-  reminderText?: string
-  actionText?: string
-  actionType?: string
+  executeDate?: string
+  executeTime?: string
+  note?: string
+  status?: ChecklistExecutionStatus
   sort?: number
 }
 
 /**
  * 分页查询请求
  */
-export type ChecklistPageRequest = {
+export interface ChecklistPageRequest {
   pageNum?: number
   pageSize?: number
   keyword?: string
-  status?: ChecklistStatus | 'ALL'
-  priority?: ChecklistPriority | 'ALL'
-  frequency?: ChecklistFrequency | 'ALL'
-  reminderOnly?: number
-  actionOnly?: number
+  status?: ChecklistExecutionStatus
+  executeDate?: string
 }
 
 /**
- * 清单项响应
+ * 清单执行项响应
  */
-export type ChecklistItemResponse = {
+export interface ChecklistItemResponse {
   id: string
   taskId?: string
   taskName: string
+  habitId?: string
+  habitName?: string
+  checklistId?: string
   title: string
   description?: string
-  priority: ChecklistPriority
-  reminderText?: string
-  actionText?: string
-  actionType?: string
-  status: ChecklistStatus
-  sourceType: ChecklistSourceType
-  frequency?: ChecklistFrequency
+  status: ChecklistExecutionStatus
+  executeDate?: string
+  executeTime?: string
+  note?: string
   sort: number
   completedAt?: string
   createdAt?: string
@@ -89,7 +75,7 @@ export type ChecklistItemResponse = {
 /**
  * 分页响应
  */
-export type PageResponse<T> = {
+export interface PageResponse<T> {
   total: number
   pageNum: number
   pageSize: number
@@ -136,4 +122,10 @@ export function restoreChecklistApi(id: string) {
  */
 export function deleteChecklistApi(id: string) {
   return request.post(`/checklists/delete/${id}`)
+}
+/**
+ * 跳过清单
+ */
+export function skipChecklistApi(id: string) {
+  return request.post(`/checklists/skip/${id}`)
 }

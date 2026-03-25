@@ -1,24 +1,30 @@
-DROP TABLE IF EXISTS habit_checkin_record;
-CREATE TABLE habit_checkin_record (
-    id                VARCHAR(64) PRIMARY KEY COMMENT '主键ID',
-    user_id           VARCHAR(64) NOT NULL COMMENT '所属用户ID',
-    habit_id          VARCHAR(64) NOT NULL COMMENT '习惯ID，对应 habit_item.id',
-    checkin_date      DATE NOT NULL COMMENT '打卡日期',
-    checkin_time      DATETIME NOT NULL COMMENT '实际打卡时间',
-    period_type       VARCHAR(20) NOT NULL COMMENT '周期类型：DAILY/WEEKLY/MONTHLY',
-    period_key        VARCHAR(32) NOT NULL COMMENT '周期标识，如 2026-03-24 / 2026-W13 / 2026-03',
-    source            VARCHAR(20) NOT NULL DEFAULT 'MANUAL' COMMENT '来源：MANUAL/SYSTEM',
-    remark            VARCHAR(255) DEFAULT NULL COMMENT '打卡备注',
-    is_deleted        TINYINT NOT NULL DEFAULT 0 COMMENT '是否删除：0否 1是',
-    created_at        DATETIME NOT NULL COMMENT '创建时间',
-    updated_at        DATETIME NOT NULL COMMENT '更新时间'
-) COMMENT='习惯打卡记录表';
 
-CREATE INDEX idx_habit_checkin_record_user_id ON habit_checkin_record(user_id);
-CREATE INDEX idx_habit_checkin_record_habit_id ON habit_checkin_record(habit_id);
-CREATE INDEX idx_habit_checkin_record_checkin_date ON habit_checkin_record(checkin_date);
-CREATE INDEX idx_habit_checkin_record_period_key ON habit_checkin_record(period_key);
+-- =========================
+-- habit_checkin_record
+-- 习惯打卡记录表
+-- =========================
+DROP TABLE IF EXISTS `habit_checkin_record`;
 
--- 一个习惯在同一个周期内只能打一条有效记录
-CREATE UNIQUE INDEX uk_habit_checkin_record_habit_period
-ON habit_checkin_record(habit_id, period_key);
+CREATE TABLE `habit_checkin_record` (
+  `id` VARCHAR(32) NOT NULL COMMENT '打卡记录ID',
+  `user_id` VARCHAR(32) NOT NULL COMMENT '用户ID',
+  `habit_item_id` VARCHAR(32) NOT NULL COMMENT '习惯ID',
+  `checklist_instance_id` VARCHAR(32) DEFAULT NULL COMMENT '关联清单实例ID，可空',
+
+  `record_date` DATE NOT NULL COMMENT '记录日期',
+  `record_time` TIME DEFAULT NULL COMMENT '记录时间，可空',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'DONE' COMMENT '状态：DONE/MISSED/SKIPPED',
+  `note` VARCHAR(500) DEFAULT NULL COMMENT '备注',
+
+  `is_deleted` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否删除：0未删除 1已删除',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_habit_checkin_record_habit_date_deleted` (`habit_item_id`, `record_date`, `is_deleted`),
+  KEY `idx_habit_checkin_record_user_id` (`user_id`),
+  KEY `idx_habit_checkin_record_checklist_instance_id` (`checklist_instance_id`),
+  KEY `idx_habit_checkin_record_status` (`status`),
+  KEY `idx_habit_checkin_record_record_date` (`record_date`),
+  KEY `idx_habit_checkin_record_deleted` (`is_deleted`)
+) COMMENT='习惯打卡记录表' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
