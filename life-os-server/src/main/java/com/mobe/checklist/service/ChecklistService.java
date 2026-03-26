@@ -1,6 +1,7 @@
 package com.mobe.checklist.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mobe.checklist.dto.request.ChecklistCreateRequest;
 import com.mobe.checklist.dto.request.ChecklistPageRequest;
@@ -20,6 +21,7 @@ import com.mobe.user.dto.UserMeResponse;
 import com.mobe.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -193,8 +195,12 @@ public class ChecklistService {
     /**
      * 新增清单执行项
      */
+    @Transactional(rollbackFor = Exception.class)
     public String createChecklist(ChecklistCreateRequest request, HttpServletRequest httpServletRequest) {
         UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
+        if (currentUser == null || !StringUtils.hasText(currentUser.getId())) {
+            throw new BizException("当前登录用户不存在");
+        }
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -209,34 +215,144 @@ public class ChecklistService {
             throw new BizException("执行日期不能为空");
         }
 
-        // 2. 先插入 checklist
+        String checklistId;
+
+        // 2. 习惯绑定清单场景
+        if (StringUtils.hasText(request.getHabitId())) {
+            HabitEntity habit = habitMapper.selectOne(
+                    new LambdaQueryWrapper<HabitEntity>()
+                            .eq(HabitEntity::getId, request.getHabitId().trim())
+                            .eq(HabitEntity::getUserId, currentUser.getId())
+                            .eq(HabitEntity::getIsDeleted, 0)
+                            .last("LIMIT 1"));
+
+            if (habit == null) {
+                throw new BizException("对应习惯不存在");
+            }
+
+            // 2.1 优先看 habit 自身是否已经绑定 checklist
+            if (StringUtils.hasText(habit.getChecklistId())) {
+                ChecklistEntity existedChecklist = checklistMapper.selectOne(
+                        new LambdaQueryWrapper<ChecklistEntity>()
+                                .eq(ChecklistEntity::getId, habit.getChecklistId())
+                                .eq(ChecklistEntity::getUserId, currentUser.getId())
+                                .eq(ChecklistEntity::getIsDeleted, 0)
+                                .last("LIMIT 1"));
+
+                if (existedChecklist == null) {
+                    throw new BizException("习惯已绑定清单，但清单不存在或已删除，请检查数据");
+                }
+
+                checklistId = existedChecklist.getId();
+            } else {
+                // 2.2 habit.checklist_id 为空时，先查 checklist 表里是否已存在这条 habit 对应的清单
+                ChecklistEntity existedChecklist = checklistMapper.selectOne(
+                        new LambdaQueryWrapper<ChecklistEntity>()
+                                .eq(ChecklistEntity::getHabitId, habit.getId())
+                                .eq(ChecklistEntity::getUserId, currentUser.getId())
+                                .eq(ChecklistEntity::getIsDeleted, 0)
+                                .last("LIMIT 1"));
+
+                if (existedChecklist != null) {
+                    // 历史断链数据：checklist 已存在，但 habit.checklist_id 没回写
+                    checklistId = existedChecklist.getId();
+
+                    habitMapper.update(
+                            null,
+                            new LambdaUpdateWrapper<HabitEntity>()
+                                    .eq(HabitEntity::getId, habit.getId())
+                                    .eq(HabitEntity::getUserId, currentUser.getId())
+                                    .eq(HabitEntity::getIsDeleted, 0)
+                                    .set(HabitEntity::getChecklistId, checklistId)
+                                    .set(HabitEntity::getUpdatedAt, now));
+                } else {
+                    // 2.3 真正第一次创建该习惯对应的 checklist
+                    ChecklistEntity checklist = new ChecklistEntity();
+                    checklist.setTaskId(request.getTaskId().trim());
+                    checklist.setTaskName(
+                            StringUtils.hasText(request.getTaskName()) ? request.getTaskName().trim() : null);
+                    checklist.setHabitId(habit.getId());
+                    checklist.setHabitName(StringUtils.hasText(request.getHabitName()) ? request.getHabitName().trim()
+                            : habit.getName());
+                    checklist.setTitle(request.getTitle().trim());
+                    checklist.setDescription(
+                            StringUtils.hasText(request.getDescription()) ? request.getDescription().trim() : null);
+                    checklist.setUserId(currentUser.getId());
+                    checklist.setIsDeleted(0);
+                    checklist.setCreatedAt(now);
+                    checklist.setUpdatedAt(now);
+
+                    checklistMapper.insert(checklist);
+                    checklistId = checklist.getId();
+
+                    // 回写到 habit
+                    habitMapper.update(
+                            null,
+                            new LambdaUpdateWrapper<HabitEntity>()
+                                    .eq(HabitEntity::getId, habit.getId())
+                                    .eq(HabitEntity::getUserId, currentUser.getId())
+                                    .eq(HabitEntity::getIsDeleted, 0)
+                                    .set(HabitEntity::getChecklistId, checklistId)
+                                    .set(HabitEntity::getUpdatedAt, now));
+                }
+            }
+
+            // 2.4 同一习惯同一天只允许一条执行记录
+            Long existedCount = checklistExecutionMapper.selectCount(
+                    new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                            .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                            .eq(ChecklistExecutionEntity::getHabitId, habit.getId())
+                            .eq(ChecklistExecutionEntity::getExecuteDate, request.getExecuteDate())
+                            .eq(ChecklistExecutionEntity::getIsDeleted, 0));
+
+            if (existedCount != null && existedCount > 0) {
+                throw new BizException("该习惯在所选日期已存在执行记录，请勿重复创建");
+            }
+
+            // 2.5 新增 checklist_execution
+            ChecklistExecutionEntity execution = new ChecklistExecutionEntity();
+            execution.setChecklistId(checklistId);
+            execution.setTaskId(request.getTaskId().trim());
+            execution.setHabitId(habit.getId());
+            execution.setExecuteDate(request.getExecuteDate());
+            execution.setExecuteTime(request.getExecuteTime());
+            execution.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus().trim() : "PENDING");
+            execution.setNote(StringUtils.hasText(request.getNote()) ? request.getNote().trim() : null);
+            execution.setSort(request.getSort() == null ? 0 : request.getSort());
+            execution.setUserId(currentUser.getId());
+            execution.setIsDeleted(0);
+            execution.setCreatedAt(now);
+            execution.setUpdatedAt(now);
+
+            checklistExecutionMapper.insert(execution);
+            return "新增成功";
+        }
+
+        // 3. 普通清单场景：没有 habitId，直接创建 checklist
         ChecklistEntity checklist = new ChecklistEntity();
-        checklist.setTaskId(request.getTaskId());
-        checklist.setTaskName(request.getTaskName());
-        checklist.setHabitId(request.getHabitId());
-        checklist.setHabitName(request.getHabitName());
-        checklist.setTitle(request.getTitle());
-        checklist.setDescription(request.getDescription());
+        checklist.setTaskId(request.getTaskId().trim());
+        checklist.setTaskName(StringUtils.hasText(request.getTaskName()) ? request.getTaskName().trim() : null);
+        checklist.setHabitId(null);
+        checklist.setHabitName(null);
+        checklist.setTitle(request.getTitle().trim());
+        checklist
+                .setDescription(StringUtils.hasText(request.getDescription()) ? request.getDescription().trim() : null);
         checklist.setUserId(currentUser.getId());
         checklist.setIsDeleted(0);
         checklist.setCreatedAt(now);
         checklist.setUpdatedAt(now);
 
         checklistMapper.insert(checklist);
+        checklistId = checklist.getId();
 
-        // 3. 再插入 checklist_execution
         ChecklistExecutionEntity execution = new ChecklistExecutionEntity();
-        execution.setChecklistId(checklist.getId());
-        execution.setTaskId(request.getTaskId());
-        execution.setHabitId(request.getHabitId());
+        execution.setChecklistId(checklistId);
+        execution.setTaskId(request.getTaskId().trim());
+        execution.setHabitId(null);
         execution.setExecuteDate(request.getExecuteDate());
-
-        if (request.getExecuteTime() != null) {
-            execution.setExecuteTime(request.getExecuteTime());
-        }
-
-        execution.setStatus(request.getStatus());
-        execution.setNote(request.getNote());
+        execution.setExecuteTime(request.getExecuteTime());
+        execution.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus().trim() : "PENDING");
+        execution.setNote(StringUtils.hasText(request.getNote()) ? request.getNote().trim() : null);
         execution.setSort(request.getSort() == null ? 0 : request.getSort());
         execution.setUserId(currentUser.getId());
         execution.setIsDeleted(0);

@@ -8,7 +8,6 @@ import com.mobe.checklist.service.ChecklistService;
 import com.mobe.common.result.ApiResponse;
 import com.mobe.finance.dto.response.PageResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 

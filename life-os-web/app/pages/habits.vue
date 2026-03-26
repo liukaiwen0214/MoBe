@@ -1,11 +1,24 @@
 <script setup lang="ts">
-import { computed, reactive, ref, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useTemplateRef, watch } from 'vue'
 import { parseDate, Time, parseTime, type CalendarDate } from '@internationalized/date'
+import {
+  pageHabitsApi,
+  createHabitDetailApi,
+  updateHabitApi,
+  deleteHabitApi,
+  enableHabitApi,
+  disableHabitApi,
+  toggleHabitGenerateApi,
+  pageHabitRecordsApi,
+  type HabitPageItemResponse,
+  type HabitRecordItemResponse
+} from '~/api/habits'
+import { listSimpleTasksApi, type TaskSimpleItem } from '~/api/tasks'
 
 definePageMeta({
   middleware: 'auth'
 })
-
+const systemToast = useSystemToast()
 type HabitFrequencyType = 'DAILY' | 'WEEKLY' | 'MONTHLY'
 type HabitStatus = 'ENABLED' | 'DISABLED'
 type HabitRecordStatus = 'DONE' | 'MISSED' | 'SKIPPED'
@@ -22,6 +35,10 @@ type HabitRecord = {
 
 type HabitItem = {
   id: string
+  taskId?: string
+  taskName?: string
+  checklistId?: string
+  checklistTitle?: string
   name: string
   description: string
   icon: string
@@ -73,86 +90,24 @@ const colorOptions = [
 ]
 
 
-const habits = ref<HabitItem[]>([
-  {
-    id: '1',
-    name: '晨间饮水',
-    description: '起床后先喝一杯温水，让身体慢慢醒过来。',
-    icon: 'i-lucide-cup-soda',
-    color: 'green',
-    frequencyType: 'DAILY',
-    frequencyText: '每天',
-    startDate: '2026-03-01',
-    reminderTime: '08:00',
-    generateToTodo: true,
-    status: 'ENABLED',
-    totalCheckInCount: 22,
-    streakCount: 7,
-    longestStreakCount: 12,
-    lastCheckInAt: '2026-03-25 08:06',
-    sort: 1,
-    records: [
-      { id: '1-1', status: 'DONE', date: '2026-03-25', time: '08:06', source: 'MANUAL', note: '今天起得早。' },
-      { id: '1-2', status: 'DONE', date: '2026-03-24', time: '08:14', source: 'LIST' },
-      { id: '1-3', status: 'DONE', date: '2026-03-23', time: '08:11', source: 'MANUAL' },
-      { id: '1-4', status: 'MISSED', date: '2026-03-22', time: '--', source: 'SYSTEM', note: '当天忘记执行。' }
-    ]
-  },
-  {
-    id: '2',
-    name: '晚间阅读',
-    description: '睡前至少阅读 20 分钟，降低碎片化输入。',
-    icon: 'i-lucide-book-open-text',
-    color: 'blue',
-    frequencyType: 'DAILY',
-    frequencyText: '每天',
-    startDate: '2026-03-05',
-    reminderTime: '22:30',
-    generateToTodo: false,
-    status: 'ENABLED',
-    totalCheckInCount: 15,
-    streakCount: 3,
-    longestStreakCount: 6,
-    lastCheckInAt: '2026-03-24 22:42',
-    sort: 2,
-    records: [
-      { id: '2-1', status: 'DONE', date: '2026-03-24', time: '22:42', source: 'MANUAL' },
-      { id: '2-2', status: 'DONE', date: '2026-03-23', time: '22:28', source: 'MANUAL' },
-      { id: '2-3', status: 'DONE', date: '2026-03-22', time: '22:36', source: 'LIST' },
-      { id: '2-4', status: 'SKIPPED', date: '2026-03-21', time: '--', source: 'SYSTEM', note: '外出，可跳过。' }
-    ]
-  },
-  {
-    id: '3',
-    name: '周末整理账单',
-    description: '检查本周消费记录，补齐分类和备注。',
-    icon: 'i-lucide-wallet-cards',
-    color: 'orange',
-    frequencyType: 'WEEKLY',
-    frequencyText: '每周日',
-    startDate: '2026-02-20',
-    reminderTime: '20:00',
-    generateToTodo: true,
-    status: 'DISABLED',
-    totalCheckInCount: 8,
-    streakCount: 0,
-    longestStreakCount: 4,
-    lastCheckInAt: '2026-03-16 20:09',
-    sort: 3,
-    records: [
-      { id: '3-1', status: 'MISSED', date: '2026-03-23', time: '--', source: 'SYSTEM' },
-      { id: '3-2', status: 'DONE', date: '2026-03-16', time: '20:09', source: 'LIST' },
-      { id: '3-3', status: 'DONE', date: '2026-03-09', time: '19:48', source: 'MANUAL' }
-    ]
-  }
-])
+const loading = ref(false)
+const habits = ref<HabitItem[]>([])
+const creatingHabit = ref(false)
+const updatingHabit = ref(false)
+const togglingGenerateIds = ref<string[]>([])
+const togglingStatusIds = ref<string[]>([])
+const deletingHabit = ref(false)
+const habitRecordsLoading = ref(false)
+const habitRecordsMap = ref<Record<string, HabitRecord[]>>({})
 
 const filters = reactive({
   keyword: '',
-  status: 'ALL',
-  frequencyType: 'ALL',
-  generateToTodo: 'ALL'
+  status: 'ALL' as 'ALL' | HabitStatus,
+  frequencyType: 'ALL' as 'ALL' | HabitFrequencyType,
+  generateToTodo: 'ALL' as 'ALL' | 'ON' | 'OFF'
 })
+const debouncedKeyword = ref('')
+let habitKeywordTimer: ReturnType<typeof setTimeout> | null = null
 
 const detailOpen = ref(false)
 const drawerMode = ref<'create' | 'detail'>('detail')
@@ -160,9 +115,13 @@ const detailMode = ref<'view' | 'edit'>('view')
 const activeHabitId = ref<string>('1')
 
 const habitStartDateInput = useTemplateRef('habitStartDateInput')
+const habitReminderTimeInput = useTemplateRef('habitReminderTimeInput')
 const habitHistoryScrollRef = ref<HTMLElement | null>(null)
+const taskOptions = ref<TaskSimpleItem[]>([])
+const taskLoading = ref(false)
 
 const editForm = reactive({
+  taskId: '',
   name: '',
   description: '',
   icon: '',
@@ -176,7 +135,14 @@ const editForm = reactive({
 })
 
 const activeHabit = computed(() => {
-  return habits.value.find(item => item.id === activeHabitId.value) || habits.value[0]
+  const target = habits.value.find(item => item.id === activeHabitId.value) || habits.value[0]
+
+  if (!target) return undefined
+
+  return {
+    ...target,
+    records: habitRecordsMap.value[target.id] || []
+  }
 })
 
 const habitStartDateValue = computed<CalendarDate | undefined>({
@@ -207,22 +173,7 @@ const habitReminderTimeValue = computed<Time | undefined>({
   }
 })
 
-const filteredHabits = computed(() => {
-  return habits.value.filter((item) => {
-    const keyword = filters.keyword.trim().toLowerCase()
-    const matchKeyword = !keyword
-      || item.name.toLowerCase().includes(keyword)
-      || item.description.toLowerCase().includes(keyword)
-
-    const matchStatus = filters.status === 'ALL' || item.status === filters.status
-    const matchFrequency = filters.frequencyType === 'ALL' || item.frequencyType === filters.frequencyType
-    const matchGenerate = filters.generateToTodo === 'ALL'
-      || (filters.generateToTodo === 'ON' && item.generateToTodo)
-      || (filters.generateToTodo === 'OFF' && !item.generateToTodo)
-
-    return matchKeyword && matchStatus && matchFrequency && matchGenerate
-  })
-})
+const filteredHabits = computed(() => habits.value)
 
 const timelineItems = computed(() => {
   if (!activeHabit.value) return []
@@ -248,12 +199,141 @@ const iconOptions = [
   { label: '提醒', value: 'i-lucide-bell' },
   { label: '星标', value: 'i-lucide-star' }
 ]
+function formatDateTimeText(value?: string) {
+  if (!value) return ''
+  return value.replace('T', ' ').slice(0, 16)
+}
 
+function mapHabitItem(item: HabitPageItemResponse): HabitItem {
+  return {
+    id: item.id,
+    taskId: item.taskId || undefined,
+    taskName: item.taskName || undefined,
+    name: item.name || '',
+    checklistId: item.checklistId || undefined,
+    checklistTitle: item.checklistTitle || undefined,
+    description: item.description || '',
+    icon: item.icon || 'i-lucide-sparkles',
+    color: item.color || 'green',
+    frequencyType: (item.frequencyType || 'DAILY') as HabitFrequencyType,
+    frequencyText: item.frequencyText || getFrequencyLabel((item.frequencyType || 'DAILY') as HabitFrequencyType),
+    startDate: item.startDate || '',
+    reminderTime: item.reminderTime ? item.reminderTime.slice(0, 5) : '',
+    generateToTodo: !!item.generateToTodo,
+    status: (item.status || 'ENABLED') as HabitStatus,
+    totalCheckInCount: item.totalCheckInCount || 0,
+    streakCount: item.streakCount || 0,
+    longestStreakCount: item.longestStreakCount || 0,
+    lastCheckInAt: formatDateTimeText(item.lastCheckInAt),
+    sort: item.sort || 0,
+    records: []
+  }
+}
+function mapHabitRecordItem(item: HabitRecordItemResponse): HabitRecord {
+  return {
+    id: item.id,
+    status: item.status as HabitRecordStatus,
+    date: item.date || '',
+    time: item.time ? item.time.slice(0, 5) : '--',
+    source: item.source as HabitRecordSource,
+    note: item.note || undefined
+  }
+}
+function pad2(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+function getNowDateString() {
+  const now = new Date()
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`
+}
+
+function getNowTimeString() {
+  const now = new Date()
+  return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`
+}
+async function fetchTaskOptions() {
+  taskLoading.value = true
+
+  try {
+    const res: any = await listSimpleTasksApi()
+    taskOptions.value = res?.data || []
+  } catch (error: any) {
+    systemToast.error('获取任务失败', error?.message || '请稍后重试', 'habit-task-options-fetch-error')
+  } finally {
+    taskLoading.value = false
+  }
+}
+
+async function fetchHabitRecords(habitId: string) {
+  if (!habitId) return
+
+  habitRecordsLoading.value = true
+
+  try {
+    const res: any = await pageHabitRecordsApi({
+      habitId,
+      pageNum: 1,
+      pageSize: 100
+    })
+
+    const records = (res?.data?.records || []) as HabitRecordItemResponse[]
+
+    habitRecordsMap.value = {
+      ...habitRecordsMap.value,
+      [habitId]: records.map(mapHabitRecordItem)
+    }
+  } catch (error: any) {
+    systemToast.error('获取记录失败', error?.message || '请稍后重试', `habit-records-fetch-${habitId}`)
+  } finally {
+    habitRecordsLoading.value = false
+  }
+}
+async function fetchHabits(showSuccess = false) {
+  loading.value = true
+
+  try {
+    const res: any = await pageHabitsApi({
+      pageNum: 1,
+      pageSize: 200,
+      keyword: debouncedKeyword.value.trim() || undefined,
+      status: filters.status !== 'ALL' ? (filters.status as HabitStatus) : undefined,
+      frequencyType: filters.frequencyType !== 'ALL' ? (filters.frequencyType as HabitFrequencyType) : undefined,
+      generateToTodo:
+        filters.generateToTodo === 'ALL'
+          ? undefined
+          : filters.generateToTodo === 'ON'
+    })
+
+    const records = (res?.data?.records || []) as HabitPageItemResponse[]
+    habits.value = records.map(mapHabitItem)
+
+    if (!activeHabitId.value && habits.value.length > 0) {
+      activeHabitId.value = habits.value[0]?.id || ''
+    }
+
+    if (activeHabitId.value && !habits.value.some(item => item.id === activeHabitId.value)) {
+      activeHabitId.value = habits.value[0]?.id || ''
+    }
+    if (detailOpen.value && activeHabitId.value) {
+      await fetchHabitRecords(activeHabitId.value)
+    }
+
+    if (showSuccess) {
+      systemToast.success('刷新成功', '习惯列表已更新', 'habit-page-refresh-success')
+    }
+  } catch (error: any) {
+    systemToast.error('获取失败', error?.message || '请稍后重试', 'habit-page-fetch-error')
+  } finally {
+    loading.value = false
+  }
+}
 function getIconLabel(icon: string) {
   return iconOptions.find(item => item.value === icon)?.label || '未选择'
 }
 
 function resetEditForm(habit: HabitItem) {
+  editForm.taskId = habit.taskId || ''
   editForm.name = habit.name
   editForm.description = habit.description
   editForm.icon = habit.icon
@@ -267,27 +347,32 @@ function resetEditForm(habit: HabitItem) {
 }
 
 function resetCreateForm() {
+  editForm.taskId = ''
   editForm.name = ''
   editForm.description = ''
   editForm.icon = 'i-lucide-sparkles'
   editForm.color = 'green'
   editForm.frequencyType = 'DAILY'
   editForm.frequencyText = '每天'
-  editForm.startDate = ''
-  editForm.reminderTime = ''
+  editForm.startDate = getNowDateString()
+  editForm.reminderTime = getNowTimeString()
   editForm.generateToTodo = true
   editForm.status = 'ENABLED'
 }
 
-function openDetail(habit: HabitItem) {
+async function openDetail(habit: HabitItem) {
+  await fetchTaskOptions()
   activeHabitId.value = habit.id
   resetEditForm(habit)
   drawerMode.value = 'detail'
   detailMode.value = 'view'
   detailOpen.value = true
+
+  await fetchHabitRecords(habit.id)
 }
 
-function openCreateDrawer() {
+async function openCreateDrawer() {
+  await fetchTaskOptions()
   resetCreateForm()
   drawerMode.value = 'create'
   detailMode.value = 'view'
@@ -309,67 +394,191 @@ function cancelEdit() {
 function closeDrawer() {
   detailOpen.value = false
 }
-
-function saveHabit() {
+async function removeHabit() {
   if (!activeHabit.value) return
 
-  const target = habits.value.find(item => item.id === activeHabit.value?.id)
-  if (!target) return
+  deletingHabit.value = true
 
-  target.name = editForm.name.trim()
-  target.description = editForm.description.trim()
-  target.icon = editForm.icon.trim() || 'i-lucide-sparkles'
-  target.color = editForm.color
-  target.frequencyType = editForm.frequencyType
-  target.frequencyText = editForm.frequencyText.trim()
-  target.startDate = editForm.startDate.trim()
-  target.reminderTime = editForm.reminderTime.trim()
-  target.generateToTodo = editForm.generateToTodo
-  target.status = editForm.status
+  try {
+    await deleteHabitApi(activeHabit.value.id)
 
-  detailMode.value = 'view'
+    const deletedId = activeHabit.value.id
+
+    await fetchHabits()
+    detailOpen.value = false
+
+    if (activeHabitId.value === deletedId) {
+      activeHabitId.value = habits.value[0]?.id || ''
+    }
+
+    systemToast.success('删除成功', '习惯已删除', `habit-delete-${deletedId}`)
+  } catch (error: any) {
+    systemToast.error('删除失败', error?.message || '请稍后重试', 'habit-delete-error')
+  } finally {
+    deletingHabit.value = false
+  }
 }
 
-function createHabit() {
-  const name = editForm.name.trim()
-  if (!name) return
+async function saveHabit() {
+  if (!activeHabit.value) return
 
-  const newHabit: HabitItem = {
-    id: String(Date.now()),
-    name,
-    description: editForm.description.trim(),
-    icon: editForm.icon.trim() || 'i-lucide-sparkles',
-    color: editForm.color,
-    frequencyType: editForm.frequencyType,
-    frequencyText: editForm.frequencyText.trim() || getFrequencyLabel(editForm.frequencyType),
-    startDate: editForm.startDate.trim(),
-    reminderTime: editForm.reminderTime.trim(),
-    generateToTodo: editForm.generateToTodo,
-    status: editForm.status,
-    totalCheckInCount: 0,
-    streakCount: 0,
-    longestStreakCount: 0,
-    lastCheckInAt: '',
-    sort: habits.value.length + 1,
-    records: []
+  const name = editForm.name.trim()
+  if (!name) {
+    systemToast.error('保存失败', '请输入习惯名称', 'habit-update-name-empty')
+    return
   }
 
-  habits.value.unshift(newHabit)
-  activeHabitId.value = newHabit.id
-  detailOpen.value = false
+  updatingHabit.value = true
+
+  try {
+    await updateHabitApi({
+      id: activeHabit.value.id,
+      taskId: editForm.taskId || undefined,
+      name,
+      description: editForm.description.trim() || undefined,
+      icon: editForm.icon.trim() || 'i-lucide-sparkles',
+      color: editForm.color,
+      frequencyType: editForm.frequencyType,
+      frequencyText: editForm.frequencyText.trim() || getFrequencyLabel(editForm.frequencyType),
+      startDate: editForm.startDate || undefined,
+      reminderTime: editForm.reminderTime || undefined,
+      generateToTodo: editForm.generateToTodo,
+      status: editForm.status,
+      sort: activeHabit.value.sort
+    })
+
+    await fetchHabits()
+    detailMode.value = 'view'
+
+    const latestHabit = habits.value.find(item => item.id === activeHabit.value?.id)
+    if (latestHabit) {
+      resetEditForm(latestHabit)
+    }
+
+    systemToast.success('保存成功', '习惯已更新', 'habit-update-success')
+  } catch (error: any) {
+    systemToast.error('保存失败', error?.message || '请稍后重试', 'habit-update-error')
+  } finally {
+    updatingHabit.value = false
+  }
 }
 
-function toggleGenerateToTodo(habit: HabitItem, value: boolean) {
+async function createHabit() {
+  const name = editForm.name.trim()
+  if (!name) {
+    systemToast.error('保存失败', '请输入习惯名称', 'habit-create-name-empty')
+    return
+  }
+
+  creatingHabit.value = true
+
+  try {
+    await createHabitDetailApi({
+      taskId: editForm.taskId || undefined,
+      name,
+      description: editForm.description.trim() || undefined,
+      icon: editForm.icon.trim() || 'i-lucide-sparkles',
+      color: editForm.color,
+      frequencyType: editForm.frequencyType,
+      frequencyText: editForm.frequencyText.trim() || getFrequencyLabel(editForm.frequencyType),
+      startDate: editForm.startDate || undefined,
+      reminderTime: editForm.reminderTime || undefined,
+      generateToTodo: editForm.generateToTodo,
+      status: editForm.status,
+      sort: habits.value.length + 1
+    })
+
+    await fetchHabits()
+    detailOpen.value = false
+
+    systemToast.success('保存成功', '习惯已新增', 'habit-create-success')
+  } catch (error: any) {
+    systemToast.error('保存失败', error?.message || '请稍后重试', 'habit-create-error')
+  } finally {
+    creatingHabit.value = false
+  }
+}
+
+async function toggleGenerateToTodo(habit: HabitItem, value: boolean) {
+  if (togglingGenerateIds.value.includes(habit.id)) return
+
+  const previousValue = habit.generateToTodo
   habit.generateToTodo = value
+
   if (activeHabit.value?.id === habit.id) {
     editForm.generateToTodo = value
   }
+
+  togglingGenerateIds.value = [...togglingGenerateIds.value, habit.id]
+
+  try {
+    await toggleHabitGenerateApi({
+      id: habit.id,
+      generateToTodo: value
+    })
+
+    systemToast.success(
+      '更新成功',
+      value ? '已开启生成到清单' : '已关闭生成到清单',
+      `habit-toggle-generate-${habit.id}`
+    )
+  } catch (error: any) {
+    habit.generateToTodo = previousValue
+
+    if (activeHabit.value?.id === habit.id) {
+      editForm.generateToTodo = previousValue
+    }
+
+    systemToast.error(
+      '更新失败',
+      error?.message || '请稍后重试',
+      `habit-toggle-generate-error-${habit.id}`
+    )
+  } finally {
+    togglingGenerateIds.value = togglingGenerateIds.value.filter(id => id !== habit.id)
+  }
 }
 
-function toggleStatus(habit: HabitItem, value: boolean) {
-  habit.status = value ? 'ENABLED' : 'DISABLED'
+async function toggleStatus(habit: HabitItem, value: boolean) {
+  if (togglingStatusIds.value.includes(habit.id)) return
+
+  const previousStatus = habit.status
+  const nextStatus: HabitStatus = value ? 'ENABLED' : 'DISABLED'
+
+  habit.status = nextStatus
+
   if (activeHabit.value?.id === habit.id) {
-    editForm.status = habit.status
+    editForm.status = nextStatus
+  }
+
+  togglingStatusIds.value = [...togglingStatusIds.value, habit.id]
+
+  try {
+    if (value) {
+      await enableHabitApi(habit.id)
+    } else {
+      await disableHabitApi(habit.id)
+    }
+
+    systemToast.success(
+      '更新成功',
+      value ? '习惯已启用' : '习惯已停用',
+      `habit-toggle-status-${habit.id}`
+    )
+  } catch (error: any) {
+    habit.status = previousStatus
+
+    if (activeHabit.value?.id === habit.id) {
+      editForm.status = previousStatus
+    }
+
+    systemToast.error(
+      '更新失败',
+      error?.message || '请稍后重试',
+      `habit-toggle-status-error-${habit.id}`
+    )
+  } finally {
+    togglingStatusIds.value = togglingStatusIds.value.filter(id => id !== habit.id)
   }
 }
 
@@ -420,6 +629,40 @@ watch(detailOpen, (open) => {
     })
   })
 })
+watch(
+  () => ({
+    keyword: debouncedKeyword.value,
+    status: filters.status,
+    frequencyType: filters.frequencyType,
+    generateToTodo: filters.generateToTodo
+  }),
+  () => {
+    fetchHabits()
+  },
+  { deep: true }
+)
+watch(
+  () => filters.keyword,
+  value => {
+    if (habitKeywordTimer) {
+      clearTimeout(habitKeywordTimer)
+    }
+
+    habitKeywordTimer = setTimeout(() => {
+      debouncedKeyword.value = value
+    }, 300)
+  },
+  { immediate: true }
+)
+onMounted(() => {
+  fetchHabits()
+})
+onBeforeUnmount(() => {
+  if (habitKeywordTimer) {
+    clearTimeout(habitKeywordTimer)
+    habitKeywordTimer = null
+  }
+})
 </script>
 
 <template>
@@ -437,7 +680,8 @@ watch(detailOpen, (open) => {
       <div class="mobe-toolbar habit-toolbar">
         <UInput v-model="filters.keyword" icon="i-lucide-search" placeholder="搜索习惯名称或描述" class="mobe-toolbar-search" />
 
-        <UButton color="neutral" variant="soft" icon="i-lucide-refresh-cw">
+        <UButton color="neutral" variant="soft" icon="i-lucide-refresh-cw" :loading="loading"
+          @click="fetchHabits(true)">
           刷新
         </UButton>
 
@@ -456,7 +700,15 @@ watch(detailOpen, (open) => {
       </div>
     </div>
 
-    <div class="habit-card-grid">
+    <div v-if="loading" class="habit-list-state">
+      正在加载习惯...
+    </div>
+
+    <div v-else-if="!filteredHabits.length" class="habit-list-state">
+      暂无习惯，去新增一个吧
+    </div>
+
+    <div v-else class="habit-card-grid">
       <div v-for="habit in filteredHabits" :key="habit.id" class="habit-card" :class="{
         'habit-card--generate-on': habit.generateToTodo,
         'habit-card--disabled': habit.status === 'DISABLED'
@@ -481,9 +733,21 @@ watch(detailOpen, (open) => {
             </div>
           </div>
 
-          <UBadge :color="habit.status === 'ENABLED' ? 'primary' : 'neutral'" variant="soft">
-            {{ getStatusLabel(habit.status) }}
-          </UBadge>
+          <div class="habit-card__badges">
+            <UBadge v-if="habit.taskName" color="neutral" variant="soft">
+              {{ habit.taskName }}
+            </UBadge>
+
+            <!-- <UTooltip v-if="habit.checklistTitle" :text="habit.checklistTitle">
+              <UBadge color="neutral" variant="soft">
+                关联清单
+              </UBadge>
+            </UTooltip> -->
+
+            <UBadge :color="habit.status === 'ENABLED' ? 'primary' : 'neutral'" variant="soft">
+              {{ getStatusLabel(habit.status) }}
+            </UBadge>
+          </div>
         </div>
 
         <div class="habit-card__middle">
@@ -511,12 +775,15 @@ watch(detailOpen, (open) => {
           <div class="habit-card__switch-row">
             <div class="habit-card__switch-item">
               <span class="habit-card__switch-label">生成到清单</span>
-              <USwitch :model-value="habit.generateToTodo" @update:model-value="toggleGenerateToTodo(habit, $event)" />
+              <USwitch :model-value="habit.generateToTodo" :loading="togglingGenerateIds.includes(habit.id)"
+                :disabled="togglingGenerateIds.includes(habit.id)"
+                @update:model-value="toggleGenerateToTodo(habit, $event)" />
             </div>
 
             <div class="habit-card__switch-item">
               <span class="habit-card__switch-label">启用</span>
-              <USwitch :model-value="habit.status === 'ENABLED'" @update:model-value="toggleStatus(habit, $event)" />
+              <USwitch :model-value="habit.status === 'ENABLED'" :loading="togglingStatusIds.includes(habit.id)"
+                :disabled="togglingStatusIds.includes(habit.id)" @update:model-value="toggleStatus(habit, $event)" />
             </div>
           </div>
         </div>
@@ -538,6 +805,12 @@ watch(detailOpen, (open) => {
 
           <div class="habit-create-drawer__body">
             <div class="habit-create-form">
+              <div class="habit-create-form__item">
+                <label class="habit-create-form__label">所属任务</label>
+                <USelect v-model="editForm.taskId"
+                  :items="taskOptions.map(item => ({ label: item.name, value: item.id }))" value-key="value"
+                  label-key="label" :loading="taskLoading" placeholder="可选，不选择则不绑定任务" />
+              </div>
               <div class="habit-create-form__item">
                 <label class="habit-create-form__label">习惯名称</label>
                 <UInput v-model="editForm.name" placeholder="例如：晨间饮水" />
@@ -629,7 +902,7 @@ watch(detailOpen, (open) => {
             <UButton color="neutral" variant="soft" @click="closeDrawer">
               取消
             </UButton>
-            <UButton icon="i-lucide-save" @click="createHabit">
+            <UButton icon="i-lucide-save" :loading="creatingHabit" @click="createHabit">
               保存
             </UButton>
           </div>
@@ -640,15 +913,33 @@ watch(detailOpen, (open) => {
             <div class="habit-detail__title-wrap">
               <div class="habit-detail__title-row">
                 <h2 class="habit-detail__title">{{ activeHabit.name }}</h2>
-                <UBadge :color="activeHabit.status === 'ENABLED' ? 'primary' : 'neutral'" variant="soft">
-                  {{ getStatusLabel(activeHabit.status) }}
-                </UBadge>
+
+                <div class="habit-detail__title-badges">
+                  <UBadge v-if="activeHabit.taskName" color="neutral" variant="soft">
+                    {{ activeHabit.taskName }}
+                  </UBadge>
+<!-- 
+                  <UTooltip v-if="activeHabit.checklistTitle" :text="activeHabit.checklistTitle">
+                    <UBadge color="neutral" variant="soft">
+                      关联清单
+                    </UBadge>
+                  </UTooltip> -->
+
+                  <UBadge :color="activeHabit.status === 'ENABLED' ? 'primary' : 'neutral'" variant="soft">
+                    {{ getStatusLabel(activeHabit.status) }}
+                  </UBadge>
+                </div>
               </div>
               <p class="habit-detail__subtitle">查看完整规则配置与历史打卡记录。</p>
             </div>
 
             <div class="habit-detail__actions">
               <template v-if="detailMode === 'view'">
+                <UButton color="error" variant="soft" icon="i-lucide-trash-2" :loading="deletingHabit"
+                  :disabled="deletingHabit" @click="removeHabit">
+                  删除
+                </UButton>
+
                 <UButton color="neutral" variant="soft" icon="i-lucide-pencil" @click="startEdit">
                   编辑
                 </UButton>
@@ -658,7 +949,7 @@ watch(detailOpen, (open) => {
                 <UButton color="neutral" variant="soft" @click="cancelEdit">
                   取消
                 </UButton>
-                <UButton icon="i-lucide-check" @click="saveHabit">
+                <UButton icon="i-lucide-check" :loading="updatingHabit" @click="saveHabit">
                   保存
                 </UButton>
               </template>
@@ -676,6 +967,12 @@ watch(detailOpen, (open) => {
                   <div class="habit-form-item">
                     <label class="habit-form-label">名称</label>
                     <UInput v-model="editForm.name" />
+                  </div>
+                  <div class="habit-form-item">
+                    <label class="habit-form-label">所属任务</label>
+                    <USelect v-model="editForm.taskId"
+                      :items="taskOptions.map(item => ({ label: item.name, value: item.id }))" value-key="value"
+                      label-key="label" :loading="taskLoading" placeholder="可选，不选择则不绑定任务" />
                   </div>
 
                   <div class="habit-form-item habit-form-item--full">
@@ -724,15 +1021,13 @@ watch(detailOpen, (open) => {
                     <UInput v-model="editForm.frequencyText" />
                   </div>
 
-                  <div class="habit-form-item">
+                  <div class="habit-form-item habit-form-item--full">
                     <label class="habit-form-label">开始日期</label>
                     <UInputDate ref="habitStartDateInput" v-model="habitStartDateValue" class="w-full" :format-options="{
                       year: 'numeric',
                       month: '2-digit',
                       day: '2-digit'
-                    }" :ui="{
-                      base: 'pr-32'
-                    }" locale="en-CA">
+                    }" :ui="{ base: 'pr-32' }" locale="en-CA">
                       <template #trailing>
                         <UPopover :reference="habitStartDateInput?.inputsRef?.[3]?.$el">
                           <UButton color="neutral" variant="ghost" icon="i-lucide-calendar" />
@@ -744,16 +1039,12 @@ watch(detailOpen, (open) => {
                     </UInputDate>
                   </div>
 
-                  <div class="habit-form-item">
+                  <div class="habit-form-item habit-form-item--full">
                     <label class="habit-form-label">提醒时间</label>
                     <UInputTime ref="habitReminderTimeInput" v-model="habitReminderTimeValue" :hour-cycle="24"
                       class="w-full" />
                   </div>
 
-                  <div class="habit-form-item">
-                    <label class="habit-form-label">提醒时间</label>
-                    <UInput v-model="editForm.reminderTime" />
-                  </div>
 
                   <div class="habit-form-item habit-form-item--full">
                     <label class="habit-form-label">生成到清单</label>
@@ -762,6 +1053,10 @@ watch(detailOpen, (open) => {
                       <USwitch v-model="editForm.generateToTodo" />
                     </div>
                   </div>
+                  <!-- <div class="habit-info-item">
+                    <span class="habit-info-item__label">关联清单</span>
+                    <span class="habit-info-item__value">{{ activeHabit.checklistTitle || '--' }}</span>
+                  </div> -->
 
                   <div class="habit-form-item habit-form-item--full">
                     <label class="habit-form-label">启用状态</label>
@@ -786,7 +1081,14 @@ watch(detailOpen, (open) => {
                 <div class="habit-info-list">
                   <div class="habit-info-item">
                     <span class="habit-info-item__label">名称</span>
-                    <span class="habit-info-item__value">{{ activeHabit.name }}</span>
+                    <span class="habit-info-item__value">{{ activeHabit.name || '--' }}</span>
+                  </div>
+
+                  <div class="habit-info-item">
+                    <span class="habit-info-item__label">所属任务</span>
+                    <span class="habit-info-item__value habit-info-item__value--single-line">
+                      {{ activeHabit.taskName || '--' }}
+                    </span>
                   </div>
 
                   <div class="habit-info-item">
@@ -887,7 +1189,15 @@ watch(detailOpen, (open) => {
               <h3 class="habit-detail__section-title">历史打卡记录</h3>
             </div>
 
-            <div ref="habitHistoryScrollRef" class="habit-history-scroll">
+            <div v-if="habitRecordsLoading" class="habit-history-empty">
+              正在加载记录...
+            </div>
+
+            <div v-else-if="!timelineItems.length" class="habit-history-empty">
+              暂无历史记录
+            </div>
+
+            <div v-else ref="habitHistoryScrollRef" class="habit-history-scroll">
               <div class="habit-history-track">
                 <div v-for="(item, index) in timelineItems" :key="item.id" class="habit-history-node"
                   :class="index % 2 === 0 ? 'habit-history-node--top' : 'habit-history-node--bottom'">
@@ -936,11 +1246,12 @@ watch(detailOpen, (open) => {
   justify-content: space-between;
   align-items: flex-end;
   gap: var(--mobe-space-4);
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .mobe-page-title-wrap {
   min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -979,6 +1290,7 @@ watch(detailOpen, (open) => {
   justify-content: flex-end;
   gap: var(--mobe-space-3);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .mobe-toolbar-search {
@@ -992,7 +1304,7 @@ watch(detailOpen, (open) => {
 .habit-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--mobe-space-6);
+  gap: var(--mobe-space-5);
   padding-top: var(--mobe-space-6);
   border-top: 1px solid var(--mobe-divider);
 }
@@ -1062,6 +1374,7 @@ watch(detailOpen, (open) => {
   font-size: 18px;
   color: var(--mobe-text);
 }
+
 
 .habit-card__title-wrap {
   min-width: 0;
@@ -1310,11 +1623,13 @@ watch(detailOpen, (open) => {
   border-radius: var(--mobe-radius-lg);
   box-shadow: var(--mobe-shadow-xs);
 }
-.source-label{
+
+.source-label {
   display: flex;
   align-items: center;
   gap: 4px;
 }
+
 .habit-detail__section--timeline {
   padding-bottom: var(--mobe-space-3);
 }
@@ -1518,6 +1833,22 @@ watch(detailOpen, (open) => {
   text-align: center;
   max-width: 132px;
 }
+
+.habit-card__badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.habit-detail__title-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .habit-history-node__date {
   font-size: var(--mobe-font-sm);
   font-weight: 600;
@@ -1575,6 +1906,7 @@ watch(detailOpen, (open) => {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
 .habit-history-node--top .habit-history-node__body {
   transform: translateY(6px);
 }
@@ -1582,6 +1914,7 @@ watch(detailOpen, (open) => {
 .habit-history-node--bottom .habit-history-node__body {
   transform: translateY(-6px);
 }
+
 .habit-timeline-indicator {
   width: 28px;
   height: 28px;
@@ -1798,6 +2131,14 @@ watch(detailOpen, (open) => {
   line-height: 1;
 }
 
+.habit-list-state {
+  padding: 36px 12px;
+  text-align: center;
+  font-size: var(--mobe-font-sm);
+  color: var(--mobe-text-soft);
+  border-top: 1px solid var(--mobe-divider);
+}
+
 @media (max-width: 1279px) {
 
   .habit-card-grid,
@@ -1807,9 +2148,71 @@ watch(detailOpen, (open) => {
 }
 
 @media (max-width: 767px) {
+  .mobe-page-shell {
+    gap: 16px;
+  }
 
-  .mobe-toolbar-search,
-  .mobe-toolbar-select,
+  .habit-card__badges,
+  .habit-detail__title-badges {
+    justify-content: flex-start;
+  }
+
+  .mobe-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .mobe-page-title-wrap {
+    width: 100%;
+  }
+
+  .mobe-page-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .mobe-page-title {
+    font-size: 28px;
+    line-height: 1.15;
+  }
+
+  .mobe-page-subtitle {
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0;
+    white-space: normal;
+  }
+
+  .mobe-toolbar {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    align-items: stretch;
+    justify-content: initial;
+  }
+
+  .mobe-toolbar-search {
+    width: 100%;
+    min-width: 0;
+    grid-column: 1 / -1;
+  }
+
+  .mobe-toolbar-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mobe-toolbar>.mobe-toolbar-select {
+    grid-column: span 2;
+  }
+
+  .mobe-toolbar> :last-child {
+    grid-column: span 2;
+  }
+
   .habit-card-grid,
   .habit-detail__section-grid,
   .habit-form-grid,
@@ -1820,10 +2223,9 @@ watch(detailOpen, (open) => {
     grid-template-columns: 1fr;
   }
 
-  .mobe-toolbar,
-  .habit-detail__header,
-  .habit-create-drawer__header {
-    align-items: stretch;
+  .habit-card {
+    padding: 16px;
+    gap: 16px;
   }
 
   .habit-card__top,
@@ -1831,6 +2233,43 @@ watch(detailOpen, (open) => {
   .habit-detail__header,
   .habit-create-drawer__header {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .habit-card__identity {
+    align-items: flex-start;
+  }
+
+  .habit-card__title-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .habit-card__title {
+    font-size: 18px;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .habit-card__desc {
+    line-height: 1.6;
+  }
+
+  .habit-card__info-panel {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .habit-card__field-value--single-line {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+  }
+
+  .habit-card__switch-item {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .habit-create-form__switch {
@@ -1840,12 +2279,98 @@ watch(detailOpen, (open) => {
 
   .habit-create-drawer,
   .habit-detail-drawer {
-    padding: 18px;
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .habit-detail__title,
+  .habit-create-drawer__title {
+    font-size: 22px;
+  }
+
+  .habit-detail__actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .habit-detail__actions>* {
+    flex: 1;
+    min-width: 0;
   }
 
   .habit-info-item {
     grid-template-columns: 1fr;
     gap: var(--mobe-space-2);
+  }
+
+  .habit-history-node {
+    width: 132px;
+    flex: 0 0 132px;
+  }
+
+  .habit-history-node__content {
+    min-height: 64px;
+  }
+
+  .habit-history-node__body {
+    max-width: 112px;
+  }
+
+  .habit-history-node__date {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .habit-history-node__meta {
+    max-width: 112px;
+  }
+}
+
+@media (max-width: 480px) {
+  .mobe-page-title {
+    font-size: 24px;
+  }
+
+  .mobe-page-subtitle {
+    font-size: 13px;
+  }
+
+  .mobe-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mobe-toolbar-search {
+    grid-column: 1 / -1;
+  }
+
+  .mobe-toolbar>.mobe-toolbar-select {
+    grid-column: 1 / -1;
+  }
+
+  .mobe-toolbar> :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .habit-card {
+    padding: 14px;
+  }
+
+  .habit-card__icon-wrap {
+    width: 42px;
+    height: 42px;
+  }
+
+  .habit-card__title {
+    font-size: 17px;
+  }
+
+  .habit-detail__stats-inline-value {
+    font-size: 16px;
+  }
+
+  .habit-create-drawer,
+  .habit-detail-drawer {
+    padding: 14px;
   }
 }
 </style>

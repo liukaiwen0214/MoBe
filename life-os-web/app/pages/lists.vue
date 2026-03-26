@@ -49,6 +49,7 @@ type ChecklistColumnKey =
   | 'description'
   | 'habit'
   | 'executeDate'
+  | 'completedAt'
   | 'note'
   | 'operations'
 
@@ -73,6 +74,7 @@ const columnVisibility = reactive<Record<ChecklistColumnKey, boolean>>({
   description: true,
   habit: true,
   executeDate: true,
+  completedAt: true,
   note: true,
   operations: true
 })
@@ -213,6 +215,7 @@ const visibleColumnOptions = computed(() => [
   { key: 'description', label: '说明' },
   { key: 'habit', label: '习惯' },
   { key: 'executeDate', label: '执行时间' },
+  { key: 'completedAt', label: '完成时间' },
   { key: 'note', label: '备注' },
   { key: 'operations', label: '操作' }
 ] as Array<{ key: ChecklistColumnKey; label: string }>)
@@ -478,7 +481,10 @@ function handleEditHabitSelect(habitId?: string) {
   editChecklistForm.habitId = selected.id
   editChecklistForm.habitName = selected.name
 }
-
+function formatDateTime(value?: string) {
+  if (!value) return '—'
+  return value.replace('T', ' ')
+}
 async function fetchHabitOptions(taskId?: string) {
   if (!taskId) {
     habitOptions.value = []
@@ -838,7 +844,6 @@ async function toggleChecklistStatus(id: string) {
       [id]: now
     }
     armUndoShake(id)
-    systemToast.info('再次点击可恢复', '3 秒内再次点击可恢复为待执行', `checklist-undo-arm-${id}`)
     return
   }
 
@@ -1163,6 +1168,7 @@ onBeforeUnmount(() => {
               <div v-if="columnVisibility.description" class="checklist-col checklist-col--desc">说明</div>
               <div v-if="columnVisibility.habit" class="checklist-col checklist-col--habit">习惯</div>
               <div v-if="columnVisibility.executeDate" class="checklist-col checklist-col--execute">执行时间</div>
+              <div v-if="columnVisibility.completedAt" class="checklist-col checklist-col--completed">完成时间</div>
               <div v-if="columnVisibility.note" class="checklist-col checklist-col--note">备注</div>
               <div v-if="columnVisibility.operations" class="checklist-col checklist-col--operations">操作</div>
             </div>
@@ -1194,14 +1200,14 @@ onBeforeUnmount(() => {
                         'check-status-btn--missed': item.status === 'MISSED',
                         'check-status-btn--armed': isUndoArmed(item.id)
                       }" @click.stop="toggleChecklistStatus(item.id)">
-                        <UIcon :name="item.status === 'DONE'
-                          ? 'i-lucide-check'
-                          : item.status === 'SKIPPED'
-                            ? 'i-lucide-forward'
-                            : item.status === 'MISSED'
-                              ? 'i-lucide-clock-3'
-                              : 'i-lucide-circle'
-                          " class="size-4" />
+                        <span class="check-status-btn__box">
+                          <span v-if="item.status === 'DONE'"
+                            class="check-status-btn__icon check-status-btn__icon--done">✓</span>
+                          <span v-else-if="item.status === 'SKIPPED'"
+                            class="check-status-btn__icon check-status-btn__icon--skipped" />
+                          <span v-else-if="item.status === 'MISSED'"
+                            class="check-status-btn__icon check-status-btn__icon--missed" />
+                        </span>
                       </button>
                     </div>
 
@@ -1234,10 +1240,14 @@ onBeforeUnmount(() => {
                     <div v-if="columnVisibility.executeDate" class="checklist-col checklist-col--execute">
                       <span class="checklist-execute-text">
                         {{ item.executeDate || '—' }}<template v-if="item.executeTime"> &nbsp;{{ item.executeTime
-                          }}</template>
+                        }}</template>
                       </span>
                     </div>
-
+                    <div v-if="columnVisibility.completedAt" class="checklist-col checklist-col--completed">
+                      <span class="checklist-execute-text">
+                        {{ item.status === 'DONE' ? formatDateTime(item.completedAt) : '—' }}
+                      </span>
+                    </div>
                     <div v-if="columnVisibility.note" class="checklist-col checklist-col--note">
                       <div class="checklist-desc" :class="{ 'checklist-desc--done': item.status === 'DONE' }">
                         {{ item.note || '—' }}
@@ -1737,11 +1747,17 @@ onBeforeUnmount(() => {
 .checklist-row {
   display: grid;
   grid-template-columns:
-    48px minmax(200px, 1.4fr) minmax(220px, 1.8fr) minmax(140px, 0.95fr) minmax(140px, 0.95fr) minmax(180px, 1.3fr) minmax(120px, 0.9fr);
+    48px
+    minmax(200px, 1.4fr)
+    minmax(220px, 1.8fr)
+    minmax(140px, 0.95fr)
+    minmax(160px, 1fr)
+    minmax(160px, 1fr)
+    minmax(180px, 1.3fr)
+    minmax(120px, 0.9fr);
   align-items: center;
   gap: 12px;
 }
-
 .checklist-table-head {
   min-height: 40px;
   padding: 8px 22px 6px;
@@ -1860,56 +1876,107 @@ onBeforeUnmount(() => {
 
 .check-status-btn {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--mobe-border-soft);
-  border-radius: 999px;
-  background: var(--mobe-surface, #fff);
-  color: var(--mobe-text-soft);
+  border: none;
+  background: transparent;
+  padding: 0;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: transform 0.18s ease;
 }
 
 .check-status-btn:hover {
-  border-color: var(--mobe-border);
-  color: var(--mobe-text);
+  transform: scale(1.04);
 }
 
-.check-status-btn--pending {
+.check-status-btn:active {
+  transform: scale(0.96);
+}
+
+.check-status-btn__box {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--mobe-surface, #fff);
+  border: 1.5px solid var(--mobe-border-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.22s ease;
+  overflow: hidden;
+}
+
+.check-status-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.check-status-btn__icon--done {
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.check-status-btn__icon--skipped {
+  width: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.check-status-btn__icon--missed {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: currentColor;
+}
+
+.check-status-btn--pending .check-status-btn__box {
   border-color: var(--mobe-border-soft);
   background: var(--mobe-surface, #fff);
-  color: var(--mobe-text-soft);
+  color: transparent;
 }
 
-.check-status-btn--done {
+.check-status-btn--done .check-status-btn__box {
   border-color: color-mix(in srgb, #16a34a 58%, white);
   background: color-mix(in srgb, #16a34a 12%, white);
   color: #15803d;
+  box-shadow: 0 4px 10px color-mix(in srgb, #16a34a 18%, transparent);
 }
 
-.check-status-btn--skipped {
+.check-status-btn--skipped .check-status-btn__box {
   border-color: color-mix(in srgb, #f59e0b 58%, white);
   background: color-mix(in srgb, #f59e0b 12%, white);
   color: #d97706;
+  box-shadow: 0 4px 10px color-mix(in srgb, #f59e0b 16%, transparent);
 }
 
-.check-status-btn--missed {
+.check-status-btn--missed .check-status-btn__box {
   border-color: color-mix(in srgb, #ef4444 58%, white);
   background: color-mix(in srgb, #ef4444 10%, white);
   color: #dc2626;
+  box-shadow: 0 4px 10px color-mix(in srgb, #ef4444 16%, transparent);
 }
 
-.check-status-btn--armed {
+.check-status-btn--armed .check-status-btn__box {
   border-color: color-mix(in srgb, #f59e0b 58%, white);
-  background: color-mix(in srgb, #f59e0b 10%, white);
-  color: #d97706;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #f59e0b 12%, transparent);
 }
+
 
 .checklist-title--done {
   text-decoration: line-through;
-  text-decoration-thickness: 1px;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, var(--mobe-text-soft) 76%, transparent);
+}
+
+.checklist-row--done .checklist-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
   text-decoration-color: color-mix(in srgb, var(--mobe-text-soft) 76%, transparent);
 }
 
