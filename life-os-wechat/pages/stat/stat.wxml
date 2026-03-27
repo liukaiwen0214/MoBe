@@ -1,0 +1,11 @@
+<view class="page">
+  <view class="page-header">
+    <view class="page-title">统计</view>
+    <view class="page-desc">查看任务、清单、习惯与账单的统计概览</view>
+  </view>
+
+  <view class="content-card">
+    <view class="card-title">统计页</view>
+    <view class="card-desc">后续接入图表、趋势和汇总数据。</view>
+  </view>
+</view>

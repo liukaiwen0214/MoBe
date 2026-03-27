@@ -1,0 +1,49 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/stat/stat",
+    "pages/checklist/checklist",
+    "pages/note/note",
+    "pages/bill/bill",
+    "pages/login/login",
+    "pages/profile/profile",
+    "pages/logs/logs"
+  ],
+  "window": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "MoBe",
+    "navigationBarBackgroundColor": "#ffffff"
+  },
+  "tabBar": {
+    "color": "#a6a1ab",
+    "selectedColor": "#5f5b66",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/stat/stat",
+        "text": "统计"
+      },
+      {
+        "pagePath": "pages/checklist/checklist",
+        "text": "清单"
+      },
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/note/note",
+        "text": "笔记"
+      },
+      {
+        "pagePath": "pages/bill/bill",
+        "text": "账单"
+      }
+    ]
+  },
+  "style": "v2",
+  "componentFramework": "glass-easel",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

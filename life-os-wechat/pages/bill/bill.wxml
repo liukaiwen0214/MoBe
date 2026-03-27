@@ -1,0 +1,11 @@
+<view class="page">
+  <view class="page-header">
+    <view class="page-title">账单</view>
+    <view class="page-desc">查看消费记录与账单整理情况</view>
+  </view>
+
+  <view class="content-card">
+    <view class="card-title">账单页</view>
+    <view class="card-desc">后续接入账单列表、统计与账单整理联动。</view>
+  </view>
+</view>

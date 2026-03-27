@@ -1,0 +1,46 @@
+<view class="login-page">
+
+  <view class="login-card">
+    <view class="card-kicker">欢迎回来</view>
+    <view class="card-title">登录 MoBe</view>
+    <view class="card-desc">让生活、任务、日程和记录都安静地归位。</view>
+
+    <view class="form-group">
+      <view class="input-label">账号</view>
+      <input class="form-input" placeholder="请输入用户名或邮箱" value="{{loginForm.account}}" bindinput="onAccountInput" />
+    </view>
+
+    <view class="form-group">
+      <view class="input-label">密码</view>
+      <input class="form-input" placeholder="请输入密码" password value="{{loginForm.password}}" bindinput="onPasswordInput" />
+    </view>
+
+    <view class="form-group">
+      <view class="input-label">验证码</view>
+      <view class="captcha-row">
+        <input class="form-input captcha-input" placeholder="请输入验证码" value="{{loginForm.captchaCode}}" bindinput="onCaptchaInput" />
+        <view class="captcha-box" bindtap="fetchCaptcha">
+          {{captcha.captchaCode || '获取中'}}
+        </view>
+      </view>
+      <view class="captcha-tip" bindtap="fetchCaptcha">看不清？换一个</view>
+    </view>
+
+    <view class="form-actions">
+      <label class="remember-wrap" bindtap="toggleRemember">
+        <checkbox checked="{{loginForm.rememberMe}}" color="#86a98f" />
+        <text>记住我</text>
+      </label>
+      <view class="forgot-text">忘记密码？</view>
+    </view>
+
+    <button class="submit-btn" bindtap="handleLogin" loading="{{loginLoading}}">
+      <text>登录</text>
+    </button>
+    <button class="secondary-btn" bindtap="handleGoRegister">
+      <text>创建账号</text>
+    </button>
+
+    <view class="footer-text">登录即表示你同意基础使用规则</view>
+  </view>
+</view>

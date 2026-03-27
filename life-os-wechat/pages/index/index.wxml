@@ -1,0 +1,78 @@
+<view class="page">
+  <view class="user-card" wx:if="{{userInfo}}">
+    <view class="user-name">{{userInfo.nickname || userInfo.username || 'MoBe 用户'}}</view>
+    <view class="user-email">{{userInfo.email || ''}}</view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">概览</view>
+    <scroll-view class="stats-scroll" scroll-x="true" show-scrollbar="false">
+      <view class="stats-row">
+        <view class="stat-card compact">
+          <view class="stat-value">12</view>
+          <view class="stat-label">今日任务</view>
+        </view>
+        <view class="stat-card compact">
+          <view class="stat-value">3</view>
+          <view class="stat-label">今日日程</view>
+        </view>
+        <view class="stat-card compact">
+          <view class="stat-value">5</view>
+          <view class="stat-label">本周习惯</view>
+        </view>
+        <view class="stat-card compact">
+          <view class="stat-value">¥268</view>
+          <view class="stat-label">本月支出</view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">常用功能</view>
+    <view class="feature-grid">
+      <view class="feature-item">
+        <view class="feature-name">任务</view>
+        <view class="feature-tip">任务管理</view>
+      </view>
+      <view class="feature-item">
+        <view class="feature-name">日程</view>
+        <view class="feature-tip">时间安排</view>
+      </view>
+      <view class="feature-item">
+        <view class="feature-name">文件</view>
+        <view class="feature-tip">资料整理</view>
+      </view>
+      <view class="feature-item">
+        <view class="feature-name">习惯</view>
+        <view class="feature-tip">规则与执行</view>
+      </view>
+      <view class="feature-item">
+        <view class="feature-name">目标</view>
+        <view class="feature-tip">目标推进</view>
+      </view>
+      <view class="feature-item">
+        <view class="feature-name">AI</view>
+        <view class="feature-tip">智能辅助</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">最近内容</view>
+    <view class="recent-list">
+      <view class="recent-item">
+        <view class="recent-title">今日清单整理</view>
+        <view class="recent-meta">刚刚更新</view>
+      </view>
+      <view class="recent-item">
+        <view class="recent-title">账单记录补充</view>
+        <view class="recent-meta">10 分钟前</view>
+      </view>
+      <view class="recent-item">
+        <view class="recent-title">习惯执行回顾</view>
+        <view class="recent-meta">今天</view>
+      </view>
+    </view>
+  </view>
+</view>

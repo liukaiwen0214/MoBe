@@ -1,0 +1,11 @@
+<view class="page">
+  <view class="page-header">
+    <view class="page-title">个人</view>
+    <view class="page-desc">查看个人资料与系统设置</view>
+  </view>
+
+  <view class="content-card">
+    <view class="card-title">个人页</view>
+    <view class="card-desc">后续接入个人信息、偏好设置与退出登录。</view>
+  </view>
+</view>
