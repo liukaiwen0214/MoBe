@@ -9,9 +9,11 @@ import {
   enableHabitApi,
   disableHabitApi,
   toggleHabitGenerateApi,
-  pageHabitRecordsApi,
+  getHabitStatsApi,
+  pageHabitTimelineApi,
   type HabitPageItemResponse,
-  type HabitRecordItemResponse
+  type HabitStatsResponse,
+  type HabitTimelineItemResponse
 } from '~/api/habits'
 import { listSimpleTasksApi, type TaskSimpleItem } from '~/api/tasks'
 
@@ -21,15 +23,15 @@ definePageMeta({
 const systemToast = useSystemToast()
 type HabitFrequencyType = 'DAILY' | 'WEEKLY' | 'MONTHLY'
 type HabitStatus = 'ENABLED' | 'DISABLED'
-type HabitRecordStatus = 'DONE' | 'MISSED' | 'SKIPPED'
-type HabitRecordSource = 'MANUAL' | 'SYSTEM' | 'LIST'
+type HabitTimelineStatus = 'PENDING' | 'DONE' | 'MISSED' | 'SKIPPED'
+type HabitTimelineSource = 'LIST'
 
-type HabitRecord = {
+type HabitTimelineRecord = {
   id: string
-  status: HabitRecordStatus
-  date: string
-  time: string
-  source: HabitRecordSource
+  status: HabitTimelineStatus
+  recordDate: string
+  recordTime: string
+  source: HabitTimelineSource
   note?: string
 }
 
@@ -54,7 +56,6 @@ type HabitItem = {
   longestStreakCount: number
   lastCheckInAt: string
   sort: number
-  records: HabitRecord[]
 }
 
 const statusOptions = [
@@ -97,9 +98,17 @@ const updatingHabit = ref(false)
 const togglingGenerateIds = ref<string[]>([])
 const togglingStatusIds = ref<string[]>([])
 const deletingHabit = ref(false)
-const habitRecordsLoading = ref(false)
-const habitRecordsMap = ref<Record<string, HabitRecord[]>>({})
+const habitDetailLoading = ref(false)
 
+const habitStats = ref<HabitStatsResponse>({
+  habitId: '',
+  totalCheckInCount: 0,
+  streakCount: 0,
+  longestStreakCount: 0,
+  lastCheckInAt: ''
+})
+
+const habitTimelineRecords = ref<HabitTimelineRecord[]>([])
 const filters = reactive({
   keyword: '',
   status: 'ALL' as 'ALL' | HabitStatus,
@@ -135,14 +144,7 @@ const editForm = reactive({
 })
 
 const activeHabit = computed(() => {
-  const target = habits.value.find(item => item.id === activeHabitId.value) || habits.value[0]
-
-  if (!target) return undefined
-
-  return {
-    ...target,
-    records: habitRecordsMap.value[target.id] || []
-  }
+  return habits.value.find(item => item.id === activeHabitId.value) || habits.value[0]
 })
 
 const habitStartDateValue = computed<CalendarDate | undefined>({
@@ -176,13 +178,11 @@ const habitReminderTimeValue = computed<Time | undefined>({
 const filteredHabits = computed(() => habits.value)
 
 const timelineItems = computed(() => {
-  if (!activeHabit.value) return []
-
-  return [...activeHabit.value.records]
-    .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
+  return [...habitTimelineRecords.value]
+    .sort((a, b) => `${b.recordDate} ${b.recordTime}`.localeCompare(`${a.recordDate} ${a.recordTime}`))
     .map((record) => ({
       ...record,
-      date: `${record.date}${record.time && record.time !== '--' ? ` ${record.time}` : ''}`,
+      date: `${record.recordDate}${record.recordTime && record.recordTime !== '--' ? ` ${record.recordTime}` : ''}`,
       icon: getTimelineIcon(record.status)
     }))
 })
@@ -225,17 +225,16 @@ function mapHabitItem(item: HabitPageItemResponse): HabitItem {
     streakCount: item.streakCount || 0,
     longestStreakCount: item.longestStreakCount || 0,
     lastCheckInAt: formatDateTimeText(item.lastCheckInAt),
-    sort: item.sort || 0,
-    records: []
+    sort: item.sort || 0
   }
 }
-function mapHabitRecordItem(item: HabitRecordItemResponse): HabitRecord {
+function mapHabitTimelineItem(item: HabitTimelineItemResponse): HabitTimelineRecord {
   return {
     id: item.id,
-    status: item.status as HabitRecordStatus,
-    date: item.date || '',
-    time: item.time ? item.time.slice(0, 5) : '--',
-    source: item.source as HabitRecordSource,
+    status: item.status as HabitTimelineStatus,
+    recordDate: item.recordDate || '',
+    recordTime: item.recordTime ? item.recordTime.slice(0, 5) : '--',
+    source: item.source as HabitTimelineSource,
     note: item.note || undefined
   }
 }
@@ -265,28 +264,37 @@ async function fetchTaskOptions() {
   }
 }
 
-async function fetchHabitRecords(habitId: string) {
+async function fetchHabitDetailData(habitId: string) {
   if (!habitId) return
 
-  habitRecordsLoading.value = true
+  habitDetailLoading.value = true
 
   try {
-    const res: any = await pageHabitRecordsApi({
-      habitId,
-      pageNum: 1,
-      pageSize: 100
-    })
+    const [statsRes, timelineRes]: any = await Promise.all([
+      getHabitStatsApi(habitId),
+      pageHabitTimelineApi({
+        habitId,
+        pageNum: 1,
+        pageSize: 100
+      })
+    ])
 
-    const records = (res?.data?.records || []) as HabitRecordItemResponse[]
+    const stats = statsRes?.data as HabitStatsResponse | undefined
+    const records = (timelineRes?.data?.records || []) as HabitTimelineItemResponse[]
 
-    habitRecordsMap.value = {
-      ...habitRecordsMap.value,
-      [habitId]: records.map(mapHabitRecordItem)
+    habitStats.value = {
+      habitId: stats?.habitId || habitId,
+      totalCheckInCount: stats?.totalCheckInCount || 0,
+      streakCount: stats?.streakCount || 0,
+      longestStreakCount: stats?.longestStreakCount || 0,
+      lastCheckInAt: formatDateTimeText(stats?.lastCheckInAt) || ''
     }
+
+    habitTimelineRecords.value = records.map(mapHabitTimelineItem)
   } catch (error: any) {
-    systemToast.error('获取记录失败', error?.message || '请稍后重试', `habit-records-fetch-${habitId}`)
+    systemToast.error('获取详情失败', error?.message || '请稍后重试', `habit-detail-fetch-${habitId}`)
   } finally {
-    habitRecordsLoading.value = false
+    habitDetailLoading.value = false
   }
 }
 async function fetchHabits(showSuccess = false) {
@@ -316,7 +324,7 @@ async function fetchHabits(showSuccess = false) {
       activeHabitId.value = habits.value[0]?.id || ''
     }
     if (detailOpen.value && activeHabitId.value) {
-      await fetchHabitRecords(activeHabitId.value)
+      await fetchHabitDetailData(activeHabitId.value)
     }
 
     if (showSuccess) {
@@ -368,7 +376,7 @@ async function openDetail(habit: HabitItem) {
   detailMode.value = 'view'
   detailOpen.value = true
 
-  await fetchHabitRecords(habit.id)
+  await fetchHabitDetailData(habit.id)
 }
 
 async function openCreateDrawer() {
@@ -393,6 +401,14 @@ function cancelEdit() {
 
 function closeDrawer() {
   detailOpen.value = false
+  habitTimelineRecords.value = []
+  habitStats.value = {
+    habitId: '',
+    totalCheckInCount: 0,
+    streakCount: 0,
+    longestStreakCount: 0,
+    lastCheckInAt: ''
+  }
 }
 async function removeHabit() {
   if (!activeHabit.value) return
@@ -586,13 +602,13 @@ function getStatusLabel(status: HabitStatus) {
   return status === 'ENABLED' ? '启用中' : '已停用'
 }
 
-function getTimelineIcon(status: HabitRecordStatus) {
+function getTimelineIcon(status: HabitTimelineStatus) {
   if (status === 'DONE') return 'i-lucide-check'
   if (status === 'SKIPPED') return 'i-lucide-forward'
   return 'i-lucide-x'
 }
 
-function getTimelineColor(status: HabitRecordStatus) {
+function getTimelineColor(status: HabitTimelineStatus) {
   if (status === 'DONE') return 'primary'
   if (status === 'SKIPPED') return 'warning'
   return 'error'
@@ -1162,23 +1178,23 @@ onBeforeUnmount(() => {
             <div class="habit-detail__stats-inline">
               <div class="habit-detail__stats-inline-item">
                 <span class="habit-detail__stats-inline-label">累计打卡次数</span>
-                <strong class="habit-detail__stats-inline-value">{{ activeHabit.totalCheckInCount }}</strong>
+                <strong class="habit-detail__stats-inline-value">{{ habitStats.totalCheckInCount }}</strong>
               </div>
 
               <div class="habit-detail__stats-inline-item">
                 <span class="habit-detail__stats-inline-label">当前连续打卡</span>
-                <strong class="habit-detail__stats-inline-value">{{ activeHabit.streakCount }}</strong>
+                <strong class="habit-detail__stats-inline-value">{{ habitStats.streakCount }}</strong>
               </div>
 
               <div class="habit-detail__stats-inline-item">
                 <span class="habit-detail__stats-inline-label">最长连续打卡</span>
-                <strong class="habit-detail__stats-inline-value">{{ activeHabit.longestStreakCount }}</strong>
+                <strong class="habit-detail__stats-inline-value">{{ habitStats.longestStreakCount }}</strong>
               </div>
 
               <div class="habit-detail__stats-inline-item">
                 <span class="habit-detail__stats-inline-label">最近一次打卡</span>
                 <strong class="habit-detail__stats-inline-value habit-detail__stats-inline-value--time">
-                  {{ activeHabit.lastCheckInAt || '--' }}
+                   {{ habitStats.lastCheckInAt || '--' }}
                 </strong>
               </div>
             </div>
@@ -1189,9 +1205,9 @@ onBeforeUnmount(() => {
               <h3 class="habit-detail__section-title">历史打卡记录</h3>
             </div>
 
-            <div v-if="habitRecordsLoading" class="habit-history-empty">
-              正在加载记录...
-            </div>
+            <div v-if="habitDetailLoading" class="habit-history-empty">
+  正在加载记录...
+</div>
 
             <div v-else-if="!timelineItems.length" class="habit-history-empty">
               暂无历史记录

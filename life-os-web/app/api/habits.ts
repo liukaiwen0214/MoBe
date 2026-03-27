@@ -195,6 +195,7 @@ export interface HabitUpdateRequest {
   sort?: number
 }
 
+
 /**
  * 分页查询习惯
  */
@@ -300,4 +301,67 @@ export interface HabitRecordPageRequest {
  */
 export function pageHabitRecordsApi(data: HabitRecordPageRequest) {
   return request.post('/habits/records/page', data)
+}
+/**
+ * 习惯统计响应
+ */
+export interface HabitStatsResponse {
+  habitId: string
+  totalCheckInCount: number
+  streakCount: number
+  longestStreakCount: number
+  lastCheckInAt?: string
+}
+
+/**
+ * 习惯时间轴状态
+ * 说明：
+ * 时间轴用于习惯详情展示，所以保留 PENDING
+ */
+export type HabitTimelineStatus = 'PENDING' | 'DONE' | 'MISSED' | 'SKIPPED'
+
+/**
+ * 习惯时间轴来源
+ */
+export type HabitTimelineSource = 'LIST'
+
+/**
+ * 习惯时间轴项响应
+ */
+export interface HabitTimelineItemResponse {
+  id: string
+  habitId: string
+  taskId?: string
+  checklistExecutionId?: string
+  recordDate?: string
+  recordTime?: string
+  status: HabitTimelineStatus
+  source: HabitTimelineSource
+  note?: string
+  createdAt?: string
+}
+
+/**
+ * 查询习惯时间轴请求
+ */
+export interface HabitTimelinePageRequest {
+  habitId: string
+  pageNum?: number
+  pageSize?: number
+  status?: HabitTimelineStatus
+  startDate?: string
+  endDate?: string
+}
+/**
+ * 查询习惯统计
+ */
+export function getHabitStatsApi(id: string) {
+  return request.post(`/habits/stats/${id}`)
+}
+
+/**
+ * 分页查询习惯时间轴
+ */
+export function pageHabitTimelineApi(data: HabitTimelinePageRequest) {
+  return request.post('/habits/timeline/page', data)
 }

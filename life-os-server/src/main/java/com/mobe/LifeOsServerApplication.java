@@ -2,6 +2,7 @@ package com.mobe;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 应用主类
@@ -10,6 +11,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 说明：使用 @SpringBootApplication 注解标记为 Spring Boot 应用
  */
 @SpringBootApplication
+@EnableScheduling
 public class LifeOsServerApplication {
 
 	/**

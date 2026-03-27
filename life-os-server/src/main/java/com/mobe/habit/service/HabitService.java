@@ -3,18 +3,23 @@ package com.mobe.habit.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mobe.checklist.entity.ChecklistEntity;
+import com.mobe.checklist.entity.ChecklistExecutionEntity;
 import com.mobe.common.exception.BizException;
 import com.mobe.habit.dto.request.HabitCreateDetailRequest;
 import com.mobe.habit.dto.request.HabitCreateRequest;
 import com.mobe.habit.dto.request.HabitListRequest;
 import com.mobe.habit.dto.request.HabitPageRequest;
 import com.mobe.habit.dto.request.HabitRecordPageRequest;
+import com.mobe.habit.dto.request.HabitTimelinePageRequest;
 import com.mobe.habit.dto.request.HabitToggleGenerateRequest;
 import com.mobe.habit.dto.request.HabitUpdateRequest;
 import com.mobe.habit.dto.response.HabitPageItemResponse;
 import com.mobe.habit.dto.response.HabitRecordItemResponse;
 import com.mobe.habit.dto.response.HabitSimpleResponse;
+import com.mobe.habit.dto.response.HabitStatsResponse;
+import com.mobe.habit.dto.response.HabitTimelineItemResponse;
 import com.mobe.common.result.PageResult;
+import com.mobe.finance.dto.response.PageResponse;
 import com.mobe.checklist.mapper.ChecklistMapper;
 import com.mobe.habit.mapper.HabitRecordMapper;
 import com.mobe.habit.entity.HabitRecordEntity;
@@ -24,16 +29,20 @@ import com.mobe.task.entity.TaskEntity;
 import com.mobe.task.mapper.TaskMapper;
 import com.mobe.user.dto.UserMeResponse;
 import com.mobe.user.service.UserService;
+import com.mobe.checklist.mapper.ChecklistExecutionMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -50,6 +59,7 @@ public class HabitService {
     private final HabitMapper habitMapper;
     private final ChecklistMapper checklistMapper;
     private final HabitRecordMapper habitRecordMapper;
+    private final ChecklistExecutionMapper checklistExecutionMapper;
     /**
      * 用户服务
      */
@@ -64,12 +74,14 @@ public class HabitService {
      * 构造方法
      */
     public HabitService(HabitMapper habitMapper, ChecklistMapper checklistMapper, HabitRecordMapper habitRecordMapper,
+            ChecklistExecutionMapper checklistExecutionMapper,
             TaskMapper taskMapper, UserService userService) {
         this.habitMapper = habitMapper;
         this.checklistMapper = checklistMapper;
         this.habitRecordMapper = habitRecordMapper;
         this.userService = userService;
         this.taskMapper = taskMapper;
+        this.checklistExecutionMapper = checklistExecutionMapper;
     }
 
     /**
@@ -209,7 +221,12 @@ public class HabitService {
         if (habitList == null || habitList.isEmpty()) {
             return PageResult.of(pageNum, pageSize, habitPage.getTotal(), Collections.emptyList());
         }
+        List<String> habitIds = habitList.stream()
+                .map(HabitEntity::getId)
+                .filter(StringUtils::hasText)
+                .toList();
 
+        Map<String, HabitStatsResponse> habitStatsMap = buildHabitStatsMap(habitIds, currentUser.getId());
         Set<String> taskIds = habitList.stream()
                 .map(HabitEntity::getTaskId)
                 .filter(StringUtils::hasText)
@@ -235,48 +252,6 @@ public class HabitService {
                         .eq(ChecklistEntity::getIsDeleted, 0))
                         .stream()
                         .collect(Collectors.toMap(ChecklistEntity::getId, item -> item));
-
-        List<String> habitIdList = habitList.stream()
-                .map(HabitEntity::getId)
-                .filter(StringUtils::hasText)
-                .toList();
-
-        Map<String, Long> totalCheckInCountMap = new HashMap<>();
-        Map<String, LocalDateTime> lastCheckInAtMap = new HashMap<>();
-
-        if (!habitIdList.isEmpty()) {
-            List<HabitRecordEntity> allRecordList = habitRecordMapper.selectList(
-                    new LambdaQueryWrapper<HabitRecordEntity>()
-                            .in(HabitRecordEntity::getHabitId, habitIdList)
-                            .eq(HabitRecordEntity::getIsDeleted, 0)
-                            .orderByDesc(HabitRecordEntity::getRecordDate)
-                            .orderByDesc(HabitRecordEntity::getRecordTime)
-                            .orderByDesc(HabitRecordEntity::getCreatedAt));
-
-            Map<String, List<HabitRecordEntity>> recordGroupMap = allRecordList.stream()
-                    .collect(Collectors.groupingBy(HabitRecordEntity::getHabitId));
-
-            for (String habitId : habitIdList) {
-                List<HabitRecordEntity> recordList = recordGroupMap.getOrDefault(habitId, Collections.emptyList());
-
-                long totalCheckInCount = recordList.stream()
-                        .filter(item -> "DONE".equals(item.getStatus()))
-                        .count();
-                totalCheckInCountMap.put(habitId, totalCheckInCount);
-
-                HabitRecordEntity latestDoneRecord = recordList.stream()
-                        .filter(item -> "DONE".equals(item.getStatus()))
-                        .findFirst()
-                        .orElse(null);
-
-                if (latestDoneRecord != null && latestDoneRecord.getRecordDate() != null) {
-                    LocalDateTime lastCheckInAt = latestDoneRecord.getRecordTime() != null
-                            ? LocalDateTime.of(latestDoneRecord.getRecordDate(), latestDoneRecord.getRecordTime())
-                            : latestDoneRecord.getRecordDate().atStartOfDay();
-                    lastCheckInAtMap.put(habitId, lastCheckInAt);
-                }
-            }
-        }
 
         List<HabitPageItemResponse> records = habitList.stream().map(habit -> {
             HabitPageItemResponse item = new HabitPageItemResponse();
@@ -307,10 +282,12 @@ public class HabitService {
                 item.setChecklistTitle(checklist.getTitle());
             }
 
-            item.setTotalCheckInCount(totalCheckInCountMap.getOrDefault(habit.getId(), 0L).intValue());
-            item.setStreakCount(0);
-            item.setLongestStreakCount(0);
-            item.setLastCheckInAt(lastCheckInAtMap.get(habit.getId()));
+            HabitStatsResponse stats = habitStatsMap.get(habit.getId());
+
+            item.setTotalCheckInCount(stats != null ? stats.getTotalCheckInCount() : 0);
+            item.setStreakCount(stats != null ? stats.getStreakCount() : 0);
+            item.setLongestStreakCount(stats != null ? stats.getLongestStreakCount() : 0);
+            item.setLastCheckInAt(stats != null ? stats.getLastCheckInAt() : null);
 
             return item;
         }).toList();
@@ -652,5 +629,367 @@ public class HabitService {
         }).toList();
 
         return PageResult.of(pageNum, pageSize, recordPage.getTotal(), records);
-    }   
+    }
+
+    /**
+     * 查询习惯统计
+     */
+    public HabitStatsResponse getHabitStats(String habitId, HttpServletRequest httpServletRequest) {
+        UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
+
+        if (!StringUtils.hasText(habitId)) {
+            throw new BizException("习惯ID不能为空");
+        }
+
+        HabitEntity habit = habitMapper.selectOne(
+                new LambdaQueryWrapper<HabitEntity>()
+                        .eq(HabitEntity::getId, habitId)
+                        .eq(HabitEntity::getUserId, currentUser.getId())
+                        .eq(HabitEntity::getIsDeleted, 0)
+                        .last("LIMIT 1"));
+
+        if (habit == null) {
+            throw new BizException("习惯不存在");
+        }
+
+        List<ChecklistExecutionEntity> executionList = checklistExecutionMapper.selectList(
+                new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                        .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                        .eq(ChecklistExecutionEntity::getHabitId, habitId)
+                        .eq(ChecklistExecutionEntity::getIsDeleted, 0));
+
+        HabitStatsResponse response = new HabitStatsResponse();
+        response.setHabitId(habitId);
+
+        if (executionList == null || executionList.isEmpty()) {
+            response.setTotalCheckInCount(0);
+            response.setStreakCount(0);
+            response.setLongestStreakCount(0);
+            response.setLastCheckInAt(null);
+            return response;
+        }
+
+        List<ChecklistExecutionEntity> doneList = executionList.stream()
+                .filter(item -> "DONE".equals(item.getStatus()))
+                .toList();
+
+        response.setTotalCheckInCount(doneList.size());
+        response.setLastCheckInAt(calculateLastCheckInAt(doneList));
+        response.setStreakCount(calculateCurrentStreak(executionList));
+        response.setLongestStreakCount(calculateLongestStreak(executionList));
+
+        return response;
+    }
+
+    private LocalDateTime calculateLastCheckInAt(List<ChecklistExecutionEntity> doneList) {
+        if (doneList == null || doneList.isEmpty()) {
+            return null;
+        }
+
+        return doneList.stream()
+                .map(this::buildExecutionDateTime)
+                .filter(Objects::nonNull)
+                .max(LocalDateTime::compareTo)
+                .orElse(null);
+    }
+
+    private Integer calculateCurrentStreak(List<ChecklistExecutionEntity> executionList) {
+        if (executionList == null || executionList.isEmpty()) {
+            return 0;
+        }
+
+        Map<LocalDate, String> dateStatusMap = executionList.stream()
+                .filter(item -> item.getExecuteDate() != null)
+                .collect(Collectors.toMap(
+                        ChecklistExecutionEntity::getExecuteDate,
+                        ChecklistExecutionEntity::getStatus,
+                        this::pickHigherPriorityStatus));
+
+        if (dateStatusMap.isEmpty()) {
+            return 0;
+        }
+
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = dateStatusMap.containsKey(today)
+                ? today
+                : dateStatusMap.keySet().stream().max(LocalDate::compareTo).orElse(today);
+
+        int streak = 0;
+        LocalDate cursor = startDate;
+
+        while (true) {
+            String status = dateStatusMap.get(cursor);
+
+            if ("DONE".equals(status)) {
+                streak++;
+                cursor = cursor.minusDays(1);
+                continue;
+            }
+
+            if (cursor.equals(today) && "PENDING".equals(status)) {
+                cursor = cursor.minusDays(1);
+                continue;
+            }
+
+            break;
+        }
+
+        return streak;
+    }
+
+    private Integer calculateLongestStreak(List<ChecklistExecutionEntity> executionList) {
+        if (executionList == null || executionList.isEmpty()) {
+            return 0;
+        }
+
+        Map<LocalDate, String> dateStatusMap = executionList.stream()
+                .filter(item -> item.getExecuteDate() != null)
+                .collect(Collectors.toMap(
+                        ChecklistExecutionEntity::getExecuteDate,
+                        ChecklistExecutionEntity::getStatus,
+                        this::pickHigherPriorityStatus));
+
+        if (dateStatusMap.isEmpty()) {
+            return 0;
+        }
+
+        List<LocalDate> sortedDates = dateStatusMap.keySet().stream()
+                .sorted()
+                .toList();
+
+        int longest = 0;
+        int current = 0;
+        LocalDate prevDate = null;
+
+        for (LocalDate date : sortedDates) {
+            String status = dateStatusMap.get(date);
+
+            if (!"DONE".equals(status)) {
+                current = 0;
+                prevDate = date;
+                continue;
+            }
+
+            if (prevDate == null) {
+                current = 1;
+            } else if (prevDate.plusDays(1).equals(date)) {
+                current++;
+            } else {
+                current = 1;
+            }
+
+            longest = Math.max(longest, current);
+            prevDate = date;
+        }
+
+        return longest;
+    }
+
+    private String pickHigherPriorityStatus(String status1, String status2) {
+        return getStatusPriority(status1) <= getStatusPriority(status2) ? status1 : status2;
+    }
+
+    private int getStatusPriority(String status) {
+        if ("DONE".equals(status)) {
+            return 1;
+        }
+        if ("PENDING".equals(status)) {
+            return 2;
+        }
+        if ("SKIPPED".equals(status)) {
+            return 3;
+        }
+        if ("MISSED".equals(status)) {
+            return 4;
+        }
+        return 99;
+    }
+
+    private LocalDateTime buildExecutionDateTime(ChecklistExecutionEntity entity) {
+        if (entity == null) {
+            return null;
+        }
+
+        if ("DONE".equals(entity.getStatus()) && entity.getCompletedAt() != null) {
+            return entity.getCompletedAt();
+        }
+
+        if (entity.getExecuteDate() != null && entity.getExecuteTime() != null) {
+            return LocalDateTime.of(entity.getExecuteDate(), entity.getExecuteTime());
+        }
+
+        if (entity.getExecuteDate() != null) {
+            return LocalDateTime.of(entity.getExecuteDate(), LocalTime.of(23, 59, 59));
+        }
+
+        return entity.getCreatedAt();
+    }
+
+    /**
+     * 分页查询习惯时间轴
+     */
+    public PageResponse<HabitTimelineItemResponse> pageHabitTimeline(HabitTimelinePageRequest request,
+            HttpServletRequest httpServletRequest) {
+        UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
+
+        if (request == null || !StringUtils.hasText(request.getHabitId())) {
+            throw new BizException("习惯ID不能为空");
+        }
+
+        HabitEntity habit = habitMapper.selectOne(
+                new LambdaQueryWrapper<HabitEntity>()
+                        .eq(HabitEntity::getId, request.getHabitId())
+                        .eq(HabitEntity::getUserId, currentUser.getId())
+                        .eq(HabitEntity::getIsDeleted, 0)
+                        .last("LIMIT 1"));
+
+        if (habit == null) {
+            throw new BizException("习惯不存在");
+        }
+
+        long pageNum = request.getPageNum() == null || request.getPageNum() < 1 ? 1 : request.getPageNum();
+        long pageSize = request.getPageSize() == null || request.getPageSize() < 1 ? 10 : request.getPageSize();
+
+        LambdaQueryWrapper<ChecklistExecutionEntity> wrapper = new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
+                .eq(ChecklistExecutionEntity::getHabitId, request.getHabitId())
+                .eq(ChecklistExecutionEntity::getIsDeleted, 0);
+
+        if (StringUtils.hasText(request.getStatus())) {
+            wrapper.eq(ChecklistExecutionEntity::getStatus, request.getStatus().trim());
+        }
+
+        if (request.getStartDate() != null) {
+            wrapper.ge(ChecklistExecutionEntity::getExecuteDate, request.getStartDate());
+        }
+
+        if (request.getEndDate() != null) {
+            wrapper.le(ChecklistExecutionEntity::getExecuteDate, request.getEndDate());
+        }
+
+        List<ChecklistExecutionEntity> executionList = checklistExecutionMapper.selectList(wrapper);
+
+        if (executionList == null || executionList.isEmpty()) {
+            PageResponse<HabitTimelineItemResponse> empty = new PageResponse<>();
+            empty.setTotal(0L);
+            empty.setPageNum(pageNum);
+            empty.setPageSize(pageSize);
+            empty.setRecords(Collections.emptyList());
+            return empty;
+        }
+
+        List<HabitTimelineItemResponse> allRecords = executionList.stream()
+                .map(entity -> {
+                    HabitTimelineItemResponse item = new HabitTimelineItemResponse();
+                    item.setId(entity.getId());
+                    item.setHabitId(entity.getHabitId());
+                    item.setTaskId(entity.getTaskId());
+                    item.setChecklistExecutionId(entity.getId());
+                    item.setStatus(entity.getStatus());
+                    item.setSource("LIST");
+                    item.setNote(entity.getNote());
+                    item.setCreatedAt(entity.getCreatedAt());
+
+                    if ("DONE".equals(entity.getStatus()) && entity.getCompletedAt() != null) {
+                        item.setRecordDate(entity.getCompletedAt().toLocalDate());
+                        item.setRecordTime(entity.getCompletedAt().toLocalTime().withNano(0));
+                    } else {
+                        item.setRecordDate(entity.getExecuteDate());
+                        item.setRecordTime(entity.getExecuteTime());
+                    }
+
+                    return item;
+                })
+                .sorted((a, b) -> {
+                    LocalDateTime timeA = buildTimelineDateTime(a.getRecordDate(), a.getRecordTime(), a.getCreatedAt());
+                    LocalDateTime timeB = buildTimelineDateTime(b.getRecordDate(), b.getRecordTime(), b.getCreatedAt());
+                    return timeB.compareTo(timeA);
+                })
+                .toList();
+
+        int fromIndex = (int) ((pageNum - 1) * pageSize);
+        if (fromIndex >= allRecords.size()) {
+            PageResponse<HabitTimelineItemResponse> empty = new PageResponse<>();
+            empty.setTotal((long) allRecords.size());
+            empty.setPageNum(pageNum);
+            empty.setPageSize(pageSize);
+            empty.setRecords(Collections.emptyList());
+            return empty;
+        }
+
+        int toIndex = Math.min(fromIndex + (int) pageSize, allRecords.size());
+        List<HabitTimelineItemResponse> pageRecords = allRecords.subList(fromIndex, toIndex);
+
+        PageResponse<HabitTimelineItemResponse> response = new PageResponse<>();
+        response.setTotal((long) allRecords.size());
+        response.setPageNum(pageNum);
+        response.setPageSize(pageSize);
+        response.setRecords(pageRecords);
+        return response;
+    }
+
+    private LocalDateTime buildTimelineDateTime(LocalDate date, LocalTime time, LocalDateTime createdAt) {
+        if (date != null && time != null) {
+            return LocalDateTime.of(date, time);
+        }
+        if (date != null) {
+            return LocalDateTime.of(date, LocalTime.of(23, 59, 59));
+        }
+        return createdAt == null ? LocalDateTime.MIN : createdAt;
+    }
+
+    /**
+     * 批量计算习惯统计
+     */
+    private Map<String, HabitStatsResponse> buildHabitStatsMap(List<String> habitIds, String userId) {
+        if (habitIds == null || habitIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<ChecklistExecutionEntity> executionList = checklistExecutionMapper.selectList(
+                new LambdaQueryWrapper<ChecklistExecutionEntity>()
+                        .eq(ChecklistExecutionEntity::getUserId, userId)
+                        .in(ChecklistExecutionEntity::getHabitId, habitIds)
+                        .eq(ChecklistExecutionEntity::getIsDeleted, 0));
+
+        if (executionList == null || executionList.isEmpty()) {
+            return habitIds.stream().collect(Collectors.toMap(
+                    id -> id,
+                    id -> {
+                        HabitStatsResponse stats = new HabitStatsResponse();
+                        stats.setHabitId(id);
+                        stats.setTotalCheckInCount(0);
+                        stats.setStreakCount(0);
+                        stats.setLongestStreakCount(0);
+                        stats.setLastCheckInAt(null);
+                        return stats;
+                    }));
+        }
+
+        Map<String, List<ChecklistExecutionEntity>> groupedMap = executionList.stream()
+                .filter(item -> StringUtils.hasText(item.getHabitId()))
+                .collect(Collectors.groupingBy(ChecklistExecutionEntity::getHabitId));
+
+        Map<String, HabitStatsResponse> result = new HashMap<>();
+
+        for (String habitId : habitIds) {
+            List<ChecklistExecutionEntity> oneHabitExecutions = groupedMap.getOrDefault(habitId,
+                    Collections.emptyList());
+
+            List<ChecklistExecutionEntity> doneList = oneHabitExecutions.stream()
+                    .filter(item -> "DONE".equals(item.getStatus()))
+                    .toList();
+
+            HabitStatsResponse stats = new HabitStatsResponse();
+            stats.setHabitId(habitId);
+            stats.setTotalCheckInCount(doneList.size());
+            stats.setLastCheckInAt(calculateLastCheckInAt(doneList));
+            stats.setStreakCount(calculateCurrentStreak(oneHabitExecutions));
+            stats.setLongestStreakCount(calculateLongestStreak(oneHabitExecutions));
+
+            result.put(habitId, stats);
+        }
+
+        return result;
+    }
 }

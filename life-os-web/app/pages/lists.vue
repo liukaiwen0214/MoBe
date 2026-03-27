@@ -42,7 +42,13 @@ type ChecklistGroup = {
   taskId: string
   taskName: string
   pendingCount: number
+  totalCount: number
+  visibleCount: number
   items: ChecklistExecutionRecord[]
+  visibleItems: ChecklistExecutionRecord[]
+  canShowMore: boolean
+  canShowAll: boolean
+  canCollapse: boolean
 }
 
 type ChecklistColumnKey =
@@ -62,8 +68,11 @@ const deleteConfirmOpen = ref(false)
 
 const checklistRecords = ref<ChecklistExecutionRecord[]>([])
 const collapsedGroups = ref<Record<string, boolean>>({})
+const groupVisibleCountMap = ref<Record<string, number>>({})
 const undoArmedMap = ref<Record<string, number>>({})
 const shakingIds = ref<Record<string, boolean>>({})
+
+const DEFAULT_GROUP_VISIBLE_COUNT = 5
 
 const deletingChecklist = ref(false)
 const deletingChecklistItem = ref<ChecklistExecutionRecord | null>(null)
@@ -729,8 +738,13 @@ async function fetchChecklistRecords(showSuccess = false) {
     checklistRecords.value = records
 
     const taskIds = Array.from(new Set(records.map(item => item.taskId || item.taskName)))
+
     collapsedGroups.value = Object.fromEntries(
       taskIds.map(taskId => [taskId as string, collapsedGroups.value[taskId as string] ?? false])
+    )
+
+    groupVisibleCountMap.value = Object.fromEntries(
+      taskIds.map(taskId => [taskId as string, groupVisibleCountMap.value[taskId as string] ?? DEFAULT_GROUP_VISIBLE_COUNT])
     )
 
     if (showSuccess) {
@@ -774,22 +788,48 @@ const groupedChecklistData = computed<ChecklistGroup[]>(() => {
         return 3
       }
 
+      // 1. 先按执行日期倒序（新的在前）
+      const dateA = a.executeDate || ''
+      const dateB = b.executeDate || ''
+      const executeDateDiff = dateB.localeCompare(dateA)
+      if (executeDateDiff !== 0) return executeDateDiff
+
+      // 2. 同一天内按状态排序
       const statusDiff = statusWeight(a.status) - statusWeight(b.status)
       if (statusDiff !== 0) return statusDiff
 
-      const dateA = `${a.executeDate || ''} ${a.executeTime || ''}`
-      const dateB = `${b.executeDate || ''} ${b.executeTime || ''}`
-      const dateDiff = dateA.localeCompare(dateB)
-      if (dateDiff !== 0) return dateDiff
+      // 3. 同一天同状态内按执行时间升序
+      const hasTimeA = !!a.executeTime
+      const hasTimeB = !!b.executeTime
 
+      if (hasTimeA && hasTimeB) {
+        const timeDiff = (a.executeTime || '').localeCompare(b.executeTime || '')
+        if (timeDiff !== 0) return timeDiff
+      } else if (hasTimeA && !hasTimeB) {
+        return -1
+      } else if (!hasTimeA && hasTimeB) {
+        return 1
+      }
+
+      // 4. 最后按 sort
       return (a.sort || 0) - (b.sort || 0)
     })
+
+    const totalCount = sortedItems.length
+    const visibleCount = groupVisibleCountMap.value[taskId] ?? DEFAULT_GROUP_VISIBLE_COUNT
+    const visibleItems = sortedItems.slice(0, visibleCount)
 
     return {
       taskId,
       taskName: items[0]?.taskName || '未分类',
       pendingCount: items.filter(item => item.status === 'PENDING').length,
-      items: sortedItems
+      totalCount,
+      visibleCount,
+      items: sortedItems,
+      visibleItems,
+      canShowMore: visibleCount < totalCount,
+      canShowAll: visibleCount < totalCount,
+      canCollapse: totalCount > DEFAULT_GROUP_VISIBLE_COUNT && visibleCount > DEFAULT_GROUP_VISIBLE_COUNT
     }
   })
 })
@@ -798,6 +838,28 @@ function toggleGroup(taskId: string) {
   collapsedGroups.value = {
     ...collapsedGroups.value,
     [taskId]: !collapsedGroups.value[taskId]
+  }
+}
+
+function showMoreGroup(taskId: string) {
+  const current = groupVisibleCountMap.value[taskId] ?? DEFAULT_GROUP_VISIBLE_COUNT
+  groupVisibleCountMap.value = {
+    ...groupVisibleCountMap.value,
+    [taskId]: current + DEFAULT_GROUP_VISIBLE_COUNT
+  }
+}
+
+function showAllGroup(taskId: string, totalCount: number) {
+  groupVisibleCountMap.value = {
+    ...groupVisibleCountMap.value,
+    [taskId]: totalCount
+  }
+}
+
+function collapseGroupItems(taskId: string) {
+  groupVisibleCountMap.value = {
+    ...groupVisibleCountMap.value,
+    [taskId]: DEFAULT_GROUP_VISIBLE_COUNT
   }
 }
 
@@ -1185,7 +1247,7 @@ onBeforeUnmount(() => {
                 </button>
 
                 <div v-show="!collapsedGroups[group.taskId]" class="checklist-group__body">
-                  <div v-for="item in group.items" :key="item.id" class="checklist-row" :class="{
+                  <div v-for="item in group.visibleItems" :key="item.id" class="checklist-row" :class="{
                     'checklist-row--pending': item.status === 'PENDING',
                     'checklist-row--done': item.status === 'DONE',
                     'checklist-row--skipped': item.status === 'SKIPPED',
@@ -1268,13 +1330,30 @@ onBeforeUnmount(() => {
                         </button>
 
                         <button type="button" class="checklist-op-btn checklist-op-btn--danger"
-                          :disabled="item.status !== 'PENDING'"
-                          :class="{ 'checklist-op-btn--disabled': item.status !== 'PENDING' }"
+                          :disabled="item.status === 'DONE'"
+                          :class="{ 'checklist-op-btn--disabled': item.status === 'DONE' }"
                           @click.stop="openDeleteChecklist(item)">
                           删除
                         </button>
                       </div>
                     </div>
+                  </div>
+                  <div v-if="group.canShowMore || group.canCollapse" class="checklist-group__more">
+                    <button v-if="group.canShowMore" type="button" class="checklist-group__more-btn"
+                      @click="showMoreGroup(group.taskId)">
+                      显示更多（再展开 5 条）
+                    </button>
+
+                    <button v-if="group.canShowAll" type="button" class="checklist-group__more-btn"
+                      @click="showAllGroup(group.taskId, group.totalCount)">
+                      显示全部（共 {{ group.totalCount }} 条）
+                    </button>
+
+                    <button v-if="group.canCollapse" type="button"
+                      class="checklist-group__more-btn checklist-group__more-btn--muted"
+                      @click="collapseGroupItems(group.taskId)">
+                      收起
+                    </button>
                   </div>
                 </div>
               </section>
@@ -1747,17 +1826,11 @@ onBeforeUnmount(() => {
 .checklist-row {
   display: grid;
   grid-template-columns:
-    48px
-    minmax(200px, 1.4fr)
-    minmax(220px, 1.8fr)
-    minmax(140px, 0.95fr)
-    minmax(160px, 1fr)
-    minmax(160px, 1fr)
-    minmax(180px, 1.3fr)
-    minmax(120px, 0.9fr);
+    48px minmax(200px, 1.4fr) minmax(220px, 1.8fr) minmax(140px, 0.95fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1.3fr) minmax(120px, 0.9fr);
   align-items: center;
   gap: 12px;
 }
+
 .checklist-table-head {
   min-height: 40px;
   padding: 8px 22px 6px;
@@ -2268,6 +2341,36 @@ onBeforeUnmount(() => {
 }
 
 .check-filter-date-clear:hover {
+  color: var(--mobe-text);
+}
+
+.checklist-group__more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 10px 4px 58px;
+  border-top: 1px dashed color-mix(in srgb, var(--mobe-divider) 52%, transparent);
+}
+
+.checklist-group__more-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 13px;
+  color: var(--mobe-primary);
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.checklist-group__more-btn:hover {
+  color: color-mix(in srgb, var(--mobe-primary) 78%, black);
+}
+
+.checklist-group__more-btn--muted {
+  color: var(--mobe-text-soft);
+}
+
+.checklist-group__more-btn--muted:hover {
   color: var(--mobe-text);
 }
 

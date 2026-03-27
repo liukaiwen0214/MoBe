@@ -71,9 +71,10 @@ public class ChecklistService {
         LambdaQueryWrapper<ChecklistExecutionEntity> wrapper = new LambdaQueryWrapper<ChecklistExecutionEntity>()
                 .eq(ChecklistExecutionEntity::getUserId, currentUser.getId())
                 .eq(ChecklistExecutionEntity::getIsDeleted, 0)
-                .orderByAsc(ChecklistExecutionEntity::getStatus)
-                .orderByAsc(ChecklistExecutionEntity::getSort)
                 .orderByDesc(ChecklistExecutionEntity::getExecuteDate)
+                .orderByAsc(ChecklistExecutionEntity::getStatus)
+                .orderByAsc(ChecklistExecutionEntity::getExecuteTime)
+                .orderByAsc(ChecklistExecutionEntity::getSort)
                 .orderByDesc(ChecklistExecutionEntity::getCreatedAt);
 
         if (StringUtils.hasText(request.getStatus())) {
@@ -394,7 +395,7 @@ public class ChecklistService {
     }
 
     /**
-     * 恢复为未完成
+     * 恢复为待执行
      */
     public void restoreChecklist(String id, HttpServletRequest httpServletRequest) {
         UserMeResponse currentUser = getLoginUserEntity(httpServletRequest);
@@ -410,7 +411,8 @@ public class ChecklistService {
             throw new BizException("清单执行项不存在");
         }
 
-        if (!"DONE".equals(execution.getStatus())) {
+        String status = execution.getStatus();
+        if (!"DONE".equals(status) && !"SKIPPED".equals(status) && !"MISSED".equals(status)) {
             throw new BizException("当前状态不允许恢复");
         }
 

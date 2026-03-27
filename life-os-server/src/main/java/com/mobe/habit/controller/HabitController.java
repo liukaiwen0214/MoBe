@@ -5,14 +5,18 @@ import com.mobe.habit.dto.request.HabitCreateDetailRequest;
 import com.mobe.habit.dto.request.HabitCreateRequest;
 import com.mobe.habit.dto.request.HabitListRequest;
 import com.mobe.habit.dto.response.HabitSimpleResponse;
+import com.mobe.habit.dto.response.HabitStatsResponse;
+import com.mobe.habit.dto.response.HabitTimelineItemResponse;
 import com.mobe.habit.service.HabitService;
 import com.mobe.habit.dto.request.HabitPageRequest;
 import com.mobe.habit.dto.request.HabitRecordPageRequest;
+import com.mobe.habit.dto.request.HabitTimelinePageRequest;
 import com.mobe.habit.dto.request.HabitToggleGenerateRequest;
 import com.mobe.habit.dto.request.HabitUpdateRequest;
 import com.mobe.habit.dto.response.HabitPageItemResponse;
 import com.mobe.habit.dto.response.HabitRecordItemResponse;
 import com.mobe.common.result.PageResult;
+import com.mobe.finance.dto.response.PageResponse;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -113,6 +117,24 @@ public class HabitController {
             HttpServletRequest httpServletRequest) {
         log.info("收到分页查询习惯记录请求，请求参数={}", request);
         PageResult<HabitRecordItemResponse> result = habitService.pageHabitRecords(request, httpServletRequest);
+        return ApiResponse.success("查询成功", result);
+    }
+
+    @PostMapping("/stats/{id}")
+    public ApiResponse<HabitStatsResponse> getHabitStats(
+            @PathVariable("id") String id,
+            HttpServletRequest httpServletRequest) {
+        log.info("收到查询习惯统计请求，id={}", id);
+        HabitStatsResponse result = habitService.getHabitStats(id, httpServletRequest);
+        return ApiResponse.success("查询成功", result);
+    }
+
+    @PostMapping("/timeline/page")
+    public ApiResponse<PageResponse<HabitTimelineItemResponse>> pageHabitTimeline(
+            @RequestBody HabitTimelinePageRequest request,
+            HttpServletRequest httpServletRequest) {
+        log.info("收到分页查询习惯时间轴请求");
+        PageResponse<HabitTimelineItemResponse> result = habitService.pageHabitTimeline(request, httpServletRequest);
         return ApiResponse.success("查询成功", result);
     }
 }
