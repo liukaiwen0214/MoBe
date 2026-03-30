@@ -48,6 +48,13 @@ import java.util.stream.Collectors;
 
 /**
  * 习惯服务类
+ * <p>
+ * 文件用途：实现习惯相关的业务逻辑，包括习惯的创建、查询、更新、删除、统计等功能
+ * 所属模块：habit（习惯模块）
+ * 核心职责：处理习惯相关的业务逻辑，提供习惯管理、记录查询、统计分析等功能
+ * 与其他模块的关联：依赖于habitMapper、habitRecordMapper等数据访问层组件，使用userService进行用户认证，与checklist模块和task模块有业务关联
+ * 在整体业务流程中的位置：位于服务层，是习惯相关业务逻辑的核心实现
+ * 说明：使用 @Service 注解标记为服务类
  */
 @Slf4j
 @Service
